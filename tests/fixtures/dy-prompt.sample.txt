@@ -1,0 +1,25 @@
+DY,subject_definitions:
+<Subject 1> is the cafe environment in <Picture 1>, warm amber lighting, wooden tables, soft background music.
+<Subject 2> is the character shown in <Picture 1> and in the left close-up of <Picture 2>, short black hair, fair skin, gentle expression.
+<Subject 3> is the character shown in <Picture 1> and in the right close-up of <Picture 2>, neat dark hair, warm smile, casual attire.
+
+summary:
+[reference generation] The target is a 11-second anime cel-shaded cafe meeting scene. <Picture 1> provides scene keyframe with seating layout; <Picture 2> provides character close-ups. The scene progresses through 2 connected shots, with all dialogue performed naturally in Thai.
+
+retention_analysis:
+<Subject 1> (appears in [Shot 1], [Shot 2]): fully_preserved - warm cafe interior, consistent lighting.
+<Subject 2> (appears in [Shot 1], [Shot 2]): fully_preserved - appearance and outfit consistent.
+<Subject 3> (appears in [Shot 2]): fully_preserved - appearance and outfit consistent.
+
+detailed_description:
+anime cel-shaded, warm amber lighting, shallow depth of field, gentle atmosphere
+
+[Shot 1] Wide shot of cafe interior, <Subject 2> enters and looks around for a seat.
+
+[Shot 2] At 00:05.000, Medium shot, <Subject 3> looks up from laptop and smiles. <Subject 3> (S1) speaks softly, warmly: <d>[Thai] ได้เลยครับ</d>
+
+overall_soundscape:
+Soft cafe ambience, gentle background chatter, coffee machine sounds. No subtitles or visible text.
+
+non_diegetic_music:
+Gentle acoustic guitar, warm and light, does not overpower dialogue.

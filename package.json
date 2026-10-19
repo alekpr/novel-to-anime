@@ -1,0 +1,41 @@
+{
+  "name": "novel-to-anime",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "dev:web": "npm run dev --prefix web",
+    "dev:all": "concurrently -n server,web -c cyan,magenta \"npm run dev\" \"npm run dev:web\"",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/llm/prompts && cp src/llm/prompts/*.txt dist/llm/prompts/ && npm run build --prefix web",
+    "build:server": "tsc -p tsconfig.json && mkdir -p dist/llm/prompts && cp src/llm/prompts/*.txt dist/llm/prompts/",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src tests",
+    "backup": "node scripts/backup.mjs"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/static": "^10.1.6",
+    "dotenv": "^16.6.1",
+    "fastify": "^5.4.0",
+    "mongoose": "^8.15.0",
+    "openai": "^7.32.0",
+    "p-queue": "^8.1.0",
+    "pino": "^9.7.0",
+    "pino-pretty": "^13.0.0",
+    "undici": "^7.10.0",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "@typescript-eslint/eslint-plugin": "^8.32.1",
+    "@typescript-eslint/parser": "^8.32.1",
+    "@vitest/coverage-v8": "^3.2.4",
+    "concurrently": "^10.0.6",
+    "eslint": "^9.27.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}
