@@ -63,24 +63,25 @@ ${sceneText}
     {
       "order": 1,
       "shotType": "wide",
-      "camera": "camera movement",
+      "camera": "กล้องเคลื่อนไหวอย่างไร (ภาษาไทย)",
       "durationSec": 4,
       "breakQuality": "hard",
       "characterNames": ["CHAR_1"],
-      "action": "action description",
-      "emotion": "emotion",
+      "action": "บรรยายการกระทำภาษาไทย",
+      "emotion": "อารมณ์ภาษาไทย",
       "dialogue": [{ "speakerName": "CHAR_1", "lineTh": "บทพูดภาษาไทย", "tone": "tone in English", "source": "original" }],
       "narration": null,
       "sfx": "",
       "music": ""
     }
   ],
-  "sceneSummary": "brief summary of what happened"
+  "sceneSummary": "สรุปภาษาไทย"
 }
 \`\`\`
 
+**กฎภาษา:** camera, action, emotion, sceneSummary ต้องเป็นภาษาไทย | tone เป็น English
 **Enum rules:** shotType: wide/medium/close-up/OTS/insert/POV — breakQuality: hard/soft/avoid — source: original/generated
-**Null rules:** sfx, music, camera, action, emotion must be string, use "" instead of null
+**Null rules:** sfx, music, camera, action, emotion ต้องเป็น string ใช้ "" แทน null
 `.trim();
 
   const { data, tokens } = await callStructured({
