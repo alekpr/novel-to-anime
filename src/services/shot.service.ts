@@ -7,6 +7,7 @@ import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
 import { Job } from "../models/Job.js";
 import { queues } from "../queues/jobRunner.js";
+import { config } from "../config/index.js";
 
 type SceneLean = Record<string, any>;
 type EpisodeLean = Record<string, any>;
@@ -20,19 +21,20 @@ export async function buildShotsForScene(
   prevSummary: string
 ): Promise<{ sceneSummary: string; tokensIn: number; tokensOut: number }> {
   const charMap = new Map(characters.map((c) => [c.name, c]));
+  const useGemini = config.llm.provider === "gemini";
 
-  // ใช้ index แทนชื่อภาษาไทยเพื่อหลีก PROHIBITED_CONTENT
   const sceneChars = characters.filter((c) =>
     (scene.characterIds as unknown[])?.some((id) => id?.toString() === c._id?.toString())
   );
+
+  // Gemini: ใช้ CHAR_N | DeepSeek: ใช้ชื่อจริง
   const charIndexMap = new Map(sceneChars.map((c, i) => [c.name as string, `CHAR_${i + 1}`]));
   const charReverseMap = new Map(sceneChars.map((c, i) => [`CHAR_${i + 1}`, c.name as string]));
 
-  const charContext = sceneChars
-    .map((c, i) => `- CHAR_${i + 1} (${c.personality ?? ""}) | speechHabits: [${(c.voice?.speechHabits ?? []).join(", ")}]`)
-    .join("\n");
+  const charContext = useGemini
+    ? sceneChars.map((c, i) => `- CHAR_${i + 1} (${c.personality ?? ""}) | speechHabits: [${(c.voice?.speechHabits ?? []).join(", ")}]`).join("\n")
+    : sceneChars.map((c) => `- ${c.name} (${c.personality ?? ""}) | speechHabits: [${(c.voice?.speechHabits ?? []).join(", ")}]`).join("\n");
 
-  // แทนชื่อภาษาไทยใน sceneText ด้วย index
   let sceneText = (episode.paragraphs as any[])
     .filter((p: any) => {
       const from = (scene.sourceRange as { fromParagraph?: number } | null)?.fromParagraph ?? 0;
@@ -41,19 +43,25 @@ export async function buildShotsForScene(
     })
     .map((p: any) => `[${p.idx}] ${p.text}`)
     .join("\n\n");
-  for (const [name, idx] of charIndexMap) sceneText = sceneText.split(name).join(idx);
+
+  if (useGemini) {
+    for (const [name, idx] of charIndexMap) sceneText = sceneText.split(name).join(idx);
+  }
+
+  const charNameField = useGemini ? `"characterNames": ["CHAR_1"]` : `"characterNames": ["ชื่อตัวละคร"]`;
+  const speakerField = useGemini ? `"speakerName": "CHAR_1"` : `"speakerName": "ชื่อตัวละคร"`;
 
   const userPrompt = `
 ## Scene: ${scene.sceneCode}
 TimeOfDay: ${scene.timeOfDay ?? ""} | Mood: ${scene.mood ?? ""} | Total duration: ${scene.estDurationSec ?? 30}s (~${Math.round(Number(scene.estDurationSec ?? 30) / 5)} shots)
 
-## Characters in this scene (use CHAR_N IDs only)
+## Characters in this scene
 ${charContext || "(none)"}
 
 ## Previous summary
 ${prevSummary || "(start of EP)"}
 
-## Scene text (Thai names replaced with CHAR_N)
+## Scene text
 ${sceneText}
 
 ## Return JSON:
@@ -63,14 +71,14 @@ ${sceneText}
     {
       "order": 1,
       "shotType": "wide",
-      "camera": "กล้องเคลื่อนไหวอย่างไร (ภาษาไทย)",
+      "camera": "บรรยายการเคลื่อนไหวกล้องภาษาไทย",
       "durationSec": 4,
       "breakQuality": "hard",
-      "characterNames": ["CHAR_1"],
+      ${charNameField},
       "action": "บรรยายการกระทำภาษาไทย",
       "emotion": "อารมณ์ภาษาไทย",
-      "dialogue": [{ "speakerName": "CHAR_1", "lineTh": "บทพูดภาษาไทย", "tone": "tone in English", "source": "original" }],
-      "narration": null,
+      "dialogue": [{ ${speakerField}, "lineTh": "บทพูดภาษาไทย", "tone": "tone in English", "source": "original" }],
+      "narration": "คำบรรยายภาษาไทย หรือ null",
       "sfx": "",
       "music": ""
     }
@@ -79,7 +87,7 @@ ${sceneText}
 }
 \`\`\`
 
-**กฎภาษา:** camera, action, emotion, sceneSummary ต้องเป็นภาษาไทย | tone เป็น English
+**กฎภาษา:** camera, action, emotion, narration, sceneSummary ต้องเป็นภาษาไทย | tone เป็น English
 **Enum rules:** shotType: wide/medium/close-up/OTS/insert/POV — breakQuality: hard/soft/avoid — source: original/generated
 **Null rules:** sfx, music, camera, action, emotion ต้องเป็น string ใช้ "" แทน null
 `.trim();
@@ -98,25 +106,27 @@ ${sceneText}
 
   for (const sh of data.shots) {
     const shotCode = `${epPrefix}-S${sceneNum}-SH${String(sh.order).padStart(2, "0")}`;
-    // map CHAR_N → ชื่อจริง → ObjectId
+
+    // map ชื่อ/CHAR_N → ObjectId
     const characterIds = sh.characterNames
       .map(ref => charMap.get(charReverseMap.get(ref) ?? ref)?._id)
       .filter(Boolean);
-    // replace CHAR_N ใน action
-    let action = sh.action;
-    for (const [idx, name] of charReverseMap) action = action.split(idx).join(name);
-    const dialogue = sh.dialogue.map((d) => {
-      // replace CHAR_N ใน lineTh
-      let lineTh = d.lineTh;
-      for (const [idx, name] of charReverseMap) lineTh = lineTh.split(idx).join(name);
-      return {
-        speakerId: charMap.get(charReverseMap.get(d.speakerName) ?? d.speakerName)?._id,
-        lineTh,
-        tone: d.tone,
-        source: d.source,
-        reviewed: d.source === "original",
-      };
-    });
+
+    // replace CHAR_N ที่อาจค้างอยู่ใน text fields (Gemini เท่านั้น)
+    const replaceChar = (text: string) => {
+      if (!useGemini) return text;
+      let result = text;
+      for (const [idx, name] of charReverseMap) result = result.split(idx).join(name);
+      return result;
+    };
+
+    const dialogue = sh.dialogue.map((d) => ({
+      speakerId: charMap.get(charReverseMap.get(d.speakerName) ?? d.speakerName)?._id,
+      lineTh: replaceChar(d.lineTh),
+      tone: d.tone,
+      source: d.source,
+      reviewed: d.source === "original",
+    }));
 
     await Shot.findOneAndUpdate(
       { episodeId, shotCode },
@@ -127,13 +137,13 @@ ${sceneText}
           order: sh.order,
           shotCode,
           shotType: sh.shotType,
-          camera: sh.camera,
+          camera: replaceChar(sh.camera),
           durationSec: sh.durationSec,
           breakQuality: sh.breakQuality,
           characterIds,
           locationId: scene.locationId,
-          action,
-          emotion: sh.emotion,
+          action: replaceChar(sh.action),
+          emotion: replaceChar(sh.emotion),
           dialogue,
           narration: sh.narration,
           sfx: sh.sfx,

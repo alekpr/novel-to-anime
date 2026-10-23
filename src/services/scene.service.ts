@@ -7,8 +7,8 @@ import { Episode } from "../models/Episode.js";
 import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
 import { Job } from "../models/Job.js";
+import { config } from "../config/index.js";
 
-// replace CHAR_N/LOC_N กลับเป็นชื่อจริง
 function replaceIndexes(text: string, charMap: Map<string, string>, locMap: Map<string, string>): string {
   let result = text;
   for (const [idx, name] of charMap) result = result.split(idx).join(name);
@@ -29,28 +29,40 @@ export async function runSceneBreakdown(
   const characters = await Character.find({ projectId, status: "approved" }).lean();
   const locations = await Location.find({ projectId, status: "approved" }).lean();
 
-  // ใช้ index แทนชื่อภาษาไทยเพื่อหลีก PROHIBITED_CONTENT
+  const useGemini = config.llm.provider === "gemini";
+
+  // Gemini: ใช้ CHAR_N/LOC_N แทนชื่อภาษาไทย | DeepSeek: ใช้ชื่อจริงตรงๆ
   const charIndexMap = new Map(characters.map((c, i) => [c.name as string, `CHAR_${i + 1}`]));
   const locIndexMap = new Map(locations.map((l, i) => [l.name as string, `LOC_${i + 1}`]));
   const charReverseMap = new Map(characters.map((c, i) => [`CHAR_${i + 1}`, c.name as string]));
   const locReverseMap = new Map(locations.map((l, i) => [`LOC_${i + 1}`, l.name as string]));
 
-  const charList = characters.map((c, i) => `- CHAR_${i + 1} (${(c as any).role ?? "support"})`).join("\n");
-  const locList = locations.map((l, i) => `- LOC_${i + 1}`).join("\n");
+  const charList = useGemini
+    ? characters.map((c, i) => `- CHAR_${i + 1} (${(c as any).role ?? "support"})`).join("\n")
+    : characters.map((c) => `- ${c.name} (${(c as any).role ?? "support"})`).join("\n");
 
-  // แทนที่ชื่อภาษาไทยใน novelText ด้วย index
+  const locList = useGemini
+    ? locations.map((l, i) => `- LOC_${i + 1}`).join("\n")
+    : locations.map((l) => `- ${l.name}`).join("\n");
+
   let novelText = episode.paragraphs.map((p) => `[${p.idx}] ${p.text}`).join("\n\n");
-  for (const [name, idx] of charIndexMap) novelText = novelText.split(name).join(idx);
-  for (const [name, idx] of locIndexMap) novelText = novelText.split(name).join(idx);
+  if (useGemini) {
+    for (const [name, idx] of charIndexMap) novelText = novelText.split(name).join(idx);
+    for (const [name, idx] of locIndexMap) novelText = novelText.split(name).join(idx);
+  }
+
+  const locationField = useGemini ? `"locationId": "LOC_1"` : `"locationName": "ชื่อสถานที่จาก Bible"`;
+  const charField = useGemini ? `"characterIds": ["CHAR_1", "CHAR_2"]` : `"characterNames": ["ชื่อตัวละคร"]`;
+  const charNote = useGemini ? "use CHAR_N/LOC_N IDs only" : "ใช้ชื่อจริงจาก Bible";
 
   const userPrompt = `
-## Characters in Bible (use these IDs only — do NOT use Thai names)
+## Characters in Bible (${charNote})
 ${charList || "(none)"}
 
-## Locations in Bible (use these IDs only)
+## Locations in Bible (${charNote})
 ${locList || "(none)"}
 
-## Novel text EP ${episode.number} (character/location names replaced with IDs)
+## Novel text EP ${episode.number}
 ${novelText}
 
 ## Return JSON:
@@ -59,12 +71,12 @@ ${novelText}
   "scenes": [
     {
       "order": 1,
-      "title": "scene title",
-      "summary": "brief summary",
-      "locationId": "LOC_1",
-      "timeOfDay": "morning|afternoon|evening|night",
-      "mood": "scene mood",
-      "characterIds": ["CHAR_1", "CHAR_2"],
+      "title": "ชื่อฉากภาษาไทย",
+      "summary": "สรุปสั้นๆ ภาษาไทย",
+      ${locationField},
+      "timeOfDay": "เช้า|กลางวัน|เย็น|กลางคืน",
+      "mood": "อารมณ์ของฉาก",
+      ${charField},
       "fromParagraph": 0,
       "toParagraph": 5,
       "estDurationSec": 45
@@ -97,21 +109,17 @@ ${novelText}
   const locMap = new Map(locations.map((l) => [l.name as string, l._id]));
   const charMap = new Map(characters.map((c) => [c.name as string, c._id]));
 
-  // insert scenes ใหม่ทั้งหมด (ลบเดิมไปแล้วข้างบน)
   for (const s of data.scenes) {
     const sceneCode = `EP${String(episode.number).padStart(2, "0")}-S${String(s.order).padStart(2, "0")}`;
 
-    // map LOC_N / ชื่อจริง → ObjectId
+    // map LOC_N หรือชื่อจริง → ObjectId
     const locName = locReverseMap.get(s.locationId) ?? locReverseMap.get(s.locationName) ?? s.locationName ?? s.locationId;
     const locationId = locMap.get(locName);
 
-    // map CHAR_N / ชื่อจริง → ObjectId
-    const rawCharIds = s.characterIds.length > 0 ? s.characterIds : s.characterNames;
-    const characterIds = rawCharIds
-      .map(ref => {
-        const name = charReverseMap.get(ref) ?? ref;
-        return charMap.get(name);
-      })
+    // map CHAR_N หรือชื่อจริง → ObjectId
+    const rawCharRefs = s.characterIds.length > 0 ? s.characterIds : s.characterNames;
+    const characterIds = rawCharRefs
+      .map(ref => charMap.get(charReverseMap.get(ref) ?? ref))
       .filter(Boolean);
 
     await Scene.create({
@@ -119,9 +127,8 @@ ${novelText}
       episodeId,
       order: s.order,
       sceneCode,
-      // replace CHAR_N/LOC_N ที่ค้างใน title/summary ด้วยชื่อจริง
-      title: replaceIndexes(s.title, charReverseMap, locReverseMap),
-      summary: replaceIndexes(s.summary, charReverseMap, locReverseMap),
+      title: useGemini ? replaceIndexes(s.title, charReverseMap, locReverseMap) : s.title,
+      summary: useGemini ? replaceIndexes(s.summary, charReverseMap, locReverseMap) : s.summary,
       locationId,
       timeOfDay: s.timeOfDay,
       mood: s.mood,
