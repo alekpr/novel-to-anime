@@ -23,24 +23,7 @@ export async function runSceneBreakdown(
 
   const charList = characters.map((c) => `- ${c.name}`).join("\n");
   const locList = locations.map((l) => `- ${l.name}`).join("\n");
-  const rawNovelText = episode.paragraphs.map((p) => `[${p.idx}] ${p.text}`).join("\n\n");
-
-  // แปล novelText เป็น English ก่อนส่ง Gemini เพื่อหลีก PROHIBITED_CONTENT
-  let novelText = rawNovelText;
-  if (rawNovelText.trim()) {
-    const { z } = await import("zod");
-    const TranslateResult = z.object({ text: z.string() });
-    try {
-      const { data: tx } = await callStructured({
-        system: "Translate the following Thai novel excerpt to English. Preserve paragraph numbers like [0], [1], character names, and dialogue in quotes. Return JSON only.",
-        user: `Translate to English:\n${rawNovelText}\n\nReturn: { "text": "...translated text..." }`,
-        schema: TranslateResult,
-        temperature: 0.1,
-        maxTokens: 8000,
-      });
-      if (tx.text.trim()) novelText = tx.text;
-    } catch { /* ใช้ข้อความเดิม */ }
-  }
+  const novelText = episode.paragraphs.map((p) => `[${p.idx}] ${p.text}`).join("\n\n");
 
   const userPrompt = `
 ## ตัวละครใน Bible (เลือกจากรายการนี้เท่านั้น)
