@@ -80,10 +80,12 @@ export const LLMScene = z.object({
   order: z.number().int().positive(),
   title: z.string(),
   summary: z.string(),
-  locationName: z.string(),
+  locationName: z.string().default(""),
+  locationId: z.string().default(""),   // CHAR_N / LOC_N index from prompt
   timeOfDay: z.string().default(""),
   mood: z.string().default(""),
-  characterNames: z.array(z.string()),
+  characterNames: z.array(z.string()).default([]),
+  characterIds: z.array(z.string()).default([]),  // CHAR_N indexes
   fromParagraph: z.number().int().min(0),
   toParagraph: z.number().int().min(0),
   estDurationSec: z.number().positive().default(30),

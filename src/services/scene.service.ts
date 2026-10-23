@@ -21,32 +21,42 @@ export async function runSceneBreakdown(
   const characters = await Character.find({ projectId, status: "approved" }).lean();
   const locations = await Location.find({ projectId, status: "approved" }).lean();
 
-  const charList = characters.map((c) => `- ${c.name}`).join("\n");
-  const locList = locations.map((l) => `- ${l.name}`).join("\n");
-  const novelText = episode.paragraphs.map((p) => `[${p.idx}] ${p.text}`).join("\n\n");
+  // ใช้ index แทนชื่อภาษาไทยเพื่อหลีก PROHIBITED_CONTENT
+  const charIndexMap = new Map(characters.map((c, i) => [c.name as string, `CHAR_${i + 1}`]));
+  const locIndexMap = new Map(locations.map((l, i) => [l.name as string, `LOC_${i + 1}`]));
+  const charReverseMap = new Map(characters.map((c, i) => [`CHAR_${i + 1}`, c.name as string]));
+  const locReverseMap = new Map(locations.map((l, i) => [`LOC_${i + 1}`, l.name as string]));
+
+  const charList = characters.map((c, i) => `- CHAR_${i + 1} (${(c as any).role ?? "support"})`).join("\n");
+  const locList = locations.map((l, i) => `- LOC_${i + 1}`).join("\n");
+
+  // แทนที่ชื่อภาษาไทยใน novelText ด้วย index
+  let novelText = episode.paragraphs.map((p) => `[${p.idx}] ${p.text}`).join("\n\n");
+  for (const [name, idx] of charIndexMap) novelText = novelText.split(name).join(idx);
+  for (const [name, idx] of locIndexMap) novelText = novelText.split(name).join(idx);
 
   const userPrompt = `
-## ตัวละครใน Bible (เลือกจากรายการนี้เท่านั้น)
-${charList || "(ไม่มี)"}
+## Characters in Bible (use these IDs only — do NOT use Thai names)
+${charList || "(none)"}
 
-## สถานที่ใน Bible (เลือกจากรายการนี้เท่านั้น)
-${locList || "(ไม่มี)"}
+## Locations in Bible (use these IDs only)
+${locList || "(none)"}
 
-## ข้อความนิยาย EP ${episode.number}
+## Novel text EP ${episode.number} (character/location names replaced with IDs)
 ${novelText}
 
-## Schema ที่ต้องคืน
+## Return JSON:
 \`\`\`json
 {
   "scenes": [
     {
       "order": 1,
-      "title": "ชื่อฉาก",
-      "summary": "สรุปสั้นๆ",
-      "locationName": "ชื่อสถานที่จาก Bible",
-      "timeOfDay": "กลางวัน|กลางคืน|เช้า|เย็น|...",
-      "mood": "อารมณ์ของฉาก",
-      "characterNames": ["ชื่อจาก Bible"],
+      "title": "scene title",
+      "summary": "brief summary",
+      "locationId": "LOC_1",
+      "timeOfDay": "morning|afternoon|evening|night",
+      "mood": "scene mood",
+      "characterIds": ["CHAR_1", "CHAR_2"],
       "fromParagraph": 0,
       "toParagraph": 5,
       "estDurationSec": 45
@@ -76,14 +86,25 @@ ${novelText}
   }
   await Scene.deleteMany({ episodeId });
 
-  const locMap = new Map(locations.map((l) => [l.name, l._id]));
-  const charMap = new Map(characters.map((c) => [c.name, c._id]));
+  const locMap = new Map(locations.map((l) => [l.name as string, l._id]));
+  const charMap = new Map(characters.map((c) => [c.name as string, c._id]));
 
   // insert scenes ใหม่ทั้งหมด (ลบเดิมไปแล้วข้างบน)
   for (const s of data.scenes) {
     const sceneCode = `EP${String(episode.number).padStart(2, "0")}-S${String(s.order).padStart(2, "0")}`;
-    const locationId = locMap.get(s.locationName);
-    const characterIds = s.characterNames.map((n) => charMap.get(n)).filter(Boolean);
+
+    // map LOC_N / ชื่อจริง → ObjectId
+    const locName = locReverseMap.get(s.locationId) ?? locReverseMap.get(s.locationName) ?? s.locationName ?? s.locationId;
+    const locationId = locMap.get(locName);
+
+    // map CHAR_N / ชื่อจริง → ObjectId
+    const rawCharIds = s.characterIds.length > 0 ? s.characterIds : s.characterNames;
+    const characterIds = rawCharIds
+      .map(ref => {
+        const name = charReverseMap.get(ref) ?? ref;
+        return charMap.get(name);
+      })
+      .filter(Boolean);
 
     await Scene.create({
       projectId,

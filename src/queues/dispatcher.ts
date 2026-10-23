@@ -43,6 +43,7 @@ export async function dispatchJob(
       await runnerMap[stage](projectId, episodeId, jobId);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[dispatcher] stage=${stage} FAILED:`, err);
       await Job.findByIdAndUpdate(jobId, {
         status: "failed",
         error: msg,
