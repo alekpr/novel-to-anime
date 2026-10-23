@@ -7,6 +7,7 @@ import { Episode } from "../models/Episode.js";
 import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
 import { Job } from "../models/Job.js";
+import { Project } from "../models/Project.js";
 import { config } from "../config/index.js";
 
 function replaceIndexes(text: string, charMap: Map<string, string>, locMap: Map<string, string>): string {
@@ -28,6 +29,8 @@ export async function runSceneBreakdown(
 
   const characters = await Character.find({ projectId, status: "approved" }).lean();
   const locations = await Location.find({ projectId, status: "approved" }).lean();
+  const project = await Project.findById(projectId).lean();
+  const targetEpDurationSec = (project as any)?.targetEpDurationSec ?? 480;
 
   const useGemini = config.llm.provider === "gemini";
 
@@ -56,6 +59,8 @@ export async function runSceneBreakdown(
   const charNote = useGemini ? "use CHAR_N/LOC_N IDs only" : "ใช้ชื่อจริงจาก Bible";
 
   const userPrompt = `
+## Target EP duration: อย่างน้อย ${targetEpDurationSec} วินาที (${Math.round(targetEpDurationSec / 60)} นาที) — รวม estDurationSec ทุก scene ต้องได้ถึงเป้าหมายนี้
+
 ## Characters in Bible (${charNote})
 ${charList || "(none)"}
 
@@ -97,6 +102,15 @@ ${novelText}
   });
 
   await Job.findByIdAndUpdate(jobId, { progress: 0.6, "tokens.in": tokens.in, "tokens.out": tokens.out });
+
+  // enforce minimum EP duration — scale up estDurationSec ถ้ารวมไม่ถึง target
+  const totalEst = data.scenes.reduce((s, sc) => s + sc.estDurationSec, 0);
+  if (totalEst < targetEpDurationSec) {
+    const scale = targetEpDurationSec / totalEst;
+    data.scenes.forEach(sc => {
+      sc.estDurationSec = Math.round(sc.estDurationSec * scale);
+    });
+  }
 
   // reset S2/S3/S4 ของ EP นี้ก่อนสร้างใหม่
   const oldScenes = await Scene.find({ episodeId }).select("_id").lean();

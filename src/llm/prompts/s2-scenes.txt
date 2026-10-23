@@ -11,6 +11,7 @@
 - characterNames ต้องตรงกับชื่อตัวละครใน Bible ที่ให้มา (เลือกจากรายการ ห้ามสร้างใหม่)
 - fromParagraph และ toParagraph คือ index ของย่อหน้าต้นฉบับ (เริ่มที่ 0)
 - estDurationSec ประมาณความยาวของ scene เป็นวินาที (ปกติ 20–120 วินาที)
+- **รวม estDurationSec ทุก scene ต้องได้อย่างน้อยตามที่กำหนด — ถ้าเนื้อหาสั้นให้ขยาย scene ด้วย establishing shots, reaction shots, montage เพิ่มเติม**
 - order เริ่มที่ 1 และเรียงต่อเนื่อง
 
 **รูปแบบ output:** JSON เท่านั้น ไม่มีข้อความอื่น ตาม schema ที่กำหนด

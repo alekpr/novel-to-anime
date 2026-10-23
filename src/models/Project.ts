@@ -36,6 +36,7 @@ const dialoguePolicySchema = new Schema({
 const projectSchema = new Schema({
   title: { type: String, required: true },
   language: { type: String, default: "th" },
+  targetEpDurationSec: { type: Number, default: 480 }, // 8 นาที
   styleGuide: { type: styleGuideSchema, default: () => ({}) },
   videoModel: { type: videoModelSchema, default: () => ({}) },
   clipPolicy: { type: clipPolicySchema, default: () => ({}) },
