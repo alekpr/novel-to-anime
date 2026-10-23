@@ -31,7 +31,24 @@ export async function runBibleExtraction(
     existingChars.map((c) => ({ name: c.name, aliases: c.aliases, role: (c as unknown as { role?: string }).role ?? "support" })),
     existingLocs.map((l) => ({ name: l.name, aliases: l.aliases }))
   );
-  const novelText = episode.paragraphs.map((p) => `[${p.idx}] ${p.text}`).join("\n\n");
+  const rawNovelText = episode.paragraphs.map((p) => `[${p.idx}] ${p.text}`).join("\n\n");
+
+  // แปล novelText เป็น English ก่อนส่ง Gemini เพื่อหลีก PROHIBITED_CONTENT
+  let novelText = rawNovelText;
+  if (rawNovelText.trim()) {
+    const { z } = await import("zod");
+    const TranslateResult = z.object({ text: z.string() });
+    try {
+      const { data: tx } = await callStructured({
+        system: "Translate the following Thai novel excerpt to English. Preserve paragraph numbers like [0], [1], character names, and dialogue in quotes. Return JSON only.",
+        user: `Translate to English:\n${rawNovelText}\n\nReturn: { "text": "...translated text..." }`,
+        schema: TranslateResult,
+        temperature: 0.1,
+        maxTokens: 8000,
+      });
+      if (tx.text.trim()) novelText = tx.text;
+    } catch { /* ใช้ข้อความเดิม */ }
+  }
 
   const userPrompt = buildS1Prompt(episode.number, episode.title ?? "", bibleContext, novelText);
 
