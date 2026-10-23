@@ -12,17 +12,27 @@ export const config = {
   port: parseInt(process.env.PORT ?? "3000", 10),
   mongoUri: process.env.MONGO_URI ?? "mongodb://127.0.0.1:27017/novel_anime",
   dataDir: path.resolve(process.env.DATA_DIR ?? "./data"),
-  llm: {
-    provider: (process.env.LLM_PROVIDER ?? "gemini") as "gemini" | "deepseek",
-    apiKey: process.env.LLM_API_KEY ?? "",
-    baseUrl: process.env.LLM_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta",
-    model: process.env.LLM_MODEL ?? "gemini-2.5-flash",
-    fallback: {
-      apiKey: process.env.LLM_FALLBACK_API_KEY ?? "",
-      baseUrl: process.env.LLM_FALLBACK_BASE_URL ?? "",
-      model: process.env.LLM_FALLBACK_MODEL ?? "",
-    },
-  },
+  llm: (() => {
+    const provider = (process.env.LLM_PROVIDER ?? "gemini") as "gemini" | "deepseek";
+    const isDeepSeek = provider === "deepseek";
+    return {
+      provider,
+      apiKey: isDeepSeek
+        ? (process.env.DEEPSEEK_API_KEY ?? process.env.LLM_API_KEY ?? "")
+        : (process.env.GEMINI_API_KEY ?? process.env.LLM_API_KEY ?? ""),
+      baseUrl: isDeepSeek
+        ? (process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1")
+        : (process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta"),
+      model: isDeepSeek
+        ? (process.env.DEEPSEEK_MODEL ?? "deepseek-chat")
+        : (process.env.GEMINI_MODEL ?? "gemini-2.5-flash"),
+      fallback: {
+        apiKey: process.env.LLM_FALLBACK_API_KEY ?? "",
+        baseUrl: process.env.LLM_FALLBACK_BASE_URL ?? "",
+        model: process.env.LLM_FALLBACK_MODEL ?? "",
+      },
+    };
+  })(),
   rh: {
     baseUrl: process.env.RH_BASE_URL ?? "https://www.runninghub.ai",
     apiKey: process.env.RH_API_KEY ?? "",
