@@ -248,31 +248,31 @@ function buildBibleContext(
   chars: Array<{ name: string; aliases: string[]; role: string }>,
   locs: Array<{ name: string; aliases: string[] }>
 ): string {
-  if (chars.length === 0 && locs.length === 0) return "(ยังไม่มี Bible)";
-  const charList = chars.map((c) => `- ${c.name} (${c.role}) aliases: [${c.aliases.join(", ")}]`).join("\n");
-  const locList = locs.map((l) => `- ${l.name} aliases: [${l.aliases.join(", ")}]`).join("\n");
-  return `ตัวละคร:\n${charList || "(ไม่มี)"}\n\nสถานที่:\n${locList || "(ไม่มี)"}`;
+  if (chars.length === 0 && locs.length === 0) return "(no existing Bible)";
+  const charList = chars.map((c) => `- ${c.name} (${c.role})`).join("\n");
+  const locList = locs.map((l) => `- ${l.name}`).join("\n");
+  return `Existing characters:\n${charList || "(none)"}\n\nExisting locations:\n${locList || "(none)"}`;
 }
 
 function buildS1Prompt(epNumber: number, title: string, bibleContext: string, novelText: string): string {
   return `
-## Bible ที่มีอยู่แล้ว
+## Existing Bible (do not duplicate these)
 ${bibleContext}
 
-## ข้อความนิยาย EP ${epNumber}: ${title}
+## Novel text EP ${epNumber}: ${title}
 ${novelText}
 
-## Schema ที่ต้องคืน
+## Return JSON:
 \`\`\`json
 {
-  "characters": [ { "name": "ชื่อตัวละคร", "aliases": [], "role": "main", "age": "", "personality": "", "appearance": { "hair": "", "skin": "", "eyes": "", "build": "", "distinguishing": "", "defaultOutfit": "", "inferredFields": [] }, "outfits": [{ "name": "ชื่อชุด", "description": "บรรยายชุดภาษาไทย", "outfitPrompt": "character appearance wearing outfit details in English", "outfitSheetPrompt": "anime character sheet, multiple views, front/side/back, character appearance wearing outfit, white background, reference sheet style, full body" }], "voice": { "gender": "", "ageRange": "", "pitch": "", "timbre": "", "pace": "", "accent": "", "defaultEmotion": "", "speechHabits": [], "sampleLines": [] }, "appearanceBlock": "appearance without outfit in English", "characterSheetPrompt": "full character sheet prompt in English", "voicePrompt": "", "needsReview": false, "needsReviewReason": "" } ],
-  "locations": [ { "name": "ชื่อสถานที่", "aliases": [], "type": "interior", "description": "", "timeOfDay": "", "lighting": "", "weather": "", "materials": "", "keyElements": [], "mood": "", "locationBlock": "", "masterPrompt": "", "relatedCharacterNames": [], "needsReview": false } ],
-  "episodeSummary": "สรุปเหตุการณ์ใน EP นี้ 2-3 ประโยค"
+  "characters": [ { "name": "character name", "aliases": [], "role": "main", "age": "", "personality": "", "appearance": { "hair": "", "skin": "", "eyes": "", "build": "", "distinguishing": "", "defaultOutfit": "", "inferredFields": [] }, "outfits": [{ "name": "outfit name", "description": "outfit description in Thai", "outfitPrompt": "character appearance wearing outfit details in English", "outfitSheetPrompt": "anime character sheet, multiple views, front/side/back, character appearance wearing outfit, white background, reference sheet style, full body" }], "voice": { "gender": "", "ageRange": "", "pitch": "", "timbre": "", "pace": "", "accent": "", "defaultEmotion": "", "speechHabits": [], "sampleLines": [] }, "appearanceBlock": "appearance without outfit in English", "characterSheetPrompt": "full character sheet prompt in English", "voicePrompt": "", "needsReview": false, "needsReviewReason": "" } ],
+  "locations": [ { "name": "location name", "aliases": [], "type": "interior", "description": "", "timeOfDay": "", "lighting": "", "weather": "", "materials": "", "keyElements": [], "mood": "", "locationBlock": "", "masterPrompt": "", "relatedCharacterNames": [], "needsReview": false } ],
+  "episodeSummary": "2-3 sentence summary of this episode"
 }
 \`\`\`
 
-**กฎ enum ที่ต้องเลือกค่าใดค่าหนึ่งเท่านั้น:**
-- role: "main" หรือ "support" หรือ "extra"
-- type (location): "interior" หรือ "exterior"
+**Enum rules:**
+- role: "main" or "support" or "extra"
+- type (location): "interior" or "exterior"
 `.trim();
 }

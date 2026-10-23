@@ -21,7 +21,19 @@ export async function buildShotsForScene(
 ): Promise<{ sceneSummary: string; tokensIn: number; tokensOut: number }> {
   const charMap = new Map(characters.map((c) => [c.name, c]));
 
-  const sceneText = (episode.paragraphs as any[])
+  // ใช้ index แทนชื่อภาษาไทยเพื่อหลีก PROHIBITED_CONTENT
+  const sceneChars = characters.filter((c) =>
+    (scene.characterIds as unknown[])?.some((id) => id?.toString() === c._id?.toString())
+  );
+  const charIndexMap = new Map(sceneChars.map((c, i) => [c.name as string, `CHAR_${i + 1}`]));
+  const charReverseMap = new Map(sceneChars.map((c, i) => [`CHAR_${i + 1}`, c.name as string]));
+
+  const charContext = sceneChars
+    .map((c, i) => `- CHAR_${i + 1} (${c.personality ?? ""}) | speechHabits: [${(c.voice?.speechHabits ?? []).join(", ")}]`)
+    .join("\n");
+
+  // แทนชื่อภาษาไทยใน sceneText ด้วย index
+  let sceneText = (episode.paragraphs as any[])
     .filter((p: any) => {
       const from = (scene.sourceRange as { fromParagraph?: number } | null)?.fromParagraph ?? 0;
       const to = (scene.sourceRange as { toParagraph?: number } | null)?.toParagraph ?? 999;
@@ -29,53 +41,46 @@ export async function buildShotsForScene(
     })
     .map((p: any) => `[${p.idx}] ${p.text}`)
     .join("\n\n");
-
-  const charContext = characters
-    .filter((c) => (scene.characterIds as unknown[])?.some((id) => id?.toString() === c._id?.toString()))
-    .map((c) => `- ${c.name}: ${c.personality ?? ""} | speechHabits: [${(c.voice?.speechHabits ?? []).join(", ")}]`)
-    .join("\n");
-
-  // แปล sceneText เป็น English ก่อนส่ง Gemini เพื่อหลีกเลี่ยง PROHIBITED_CONTENT
-  let translatedSceneText = sceneText;
+  for (const [name, idx] of charIndexMap) sceneText = sceneText.split(name).join(idx);
 
   const userPrompt = `
-## Scene: ${scene.sceneCode} — ${scene.title}
-สถานที่: ${scene.timeOfDay ?? ""} | อารมณ์: ${scene.mood ?? ""} | **เวลาทั้งหมด: ${scene.estDurationSec ?? 30} วินาที (ควรได้ประมาณ ${Math.round(Number(scene.estDurationSec ?? 30) / 5)} shots)**
+## Scene: ${scene.sceneCode}
+TimeOfDay: ${scene.timeOfDay ?? ""} | Mood: ${scene.mood ?? ""} | Total duration: ${scene.estDurationSec ?? 30}s (~${Math.round(Number(scene.estDurationSec ?? 30) / 5)} shots)
 
-## ตัวละครในฉากนี้
-${charContext || "(ไม่มี)"}
+## Characters in this scene (use CHAR_N IDs only)
+${charContext || "(none)"}
 
-## สรุปเหตุการณ์ก่อนหน้า
-${prevSummary || "(เริ่มต้น EP)"}
+## Previous summary
+${prevSummary || "(start of EP)"}
 
-## ข้อความต้นฉบับ
-${translatedSceneText}
+## Scene text (Thai names replaced with CHAR_N)
+${sceneText}
 
-## Schema ที่ต้องคืน
+## Return JSON:
 \`\`\`json
 {
   "shots": [
     {
       "order": 1,
       "shotType": "wide",
-      "camera": "กล้องเคลื่อนไหวอย่างไร",
+      "camera": "camera movement",
       "durationSec": 4,
       "breakQuality": "hard",
-      "characterNames": ["ชื่อจาก Bible"],
-      "action": "การกระทำ",
-      "emotion": "อารมณ์",
-      "dialogue": [{ "speakerName": "ชื่อ", "lineTh": "บทพูด", "tone": "น้ำเสียง", "source": "original" }],
+      "characterNames": ["CHAR_1"],
+      "action": "action description",
+      "emotion": "emotion",
+      "dialogue": [{ "speakerName": "CHAR_1", "lineTh": "บทพูดภาษาไทย", "tone": "tone in English", "source": "original" }],
       "narration": null,
       "sfx": "",
       "music": ""
     }
   ],
-  "sceneSummary": "สรุปสิ่งที่เกิดขึ้นใน scene นี้ 1-2 ประโยค"
+  "sceneSummary": "brief summary of what happened"
 }
 \`\`\`
 
-**กฎ enum:** shotType ต้องเป็นค่าใดค่าหนึ่ง: wide, medium, close-up, OTS, insert, POV — breakQuality: hard, soft, avoid — source: original, generated
-**กฎ null:** sfx, music, camera, action, emotion ต้องเป็น string เสมอ ห้ามเป็น null ให้ใช้ "" แทน
+**Enum rules:** shotType: wide/medium/close-up/OTS/insert/POV — breakQuality: hard/soft/avoid — source: original/generated
+**Null rules:** sfx, music, camera, action, emotion must be string, use "" instead of null
 `.trim();
 
   const { data, tokens } = await callStructured({
@@ -92,9 +97,12 @@ ${translatedSceneText}
 
   for (const sh of data.shots) {
     const shotCode = `${epPrefix}-S${sceneNum}-SH${String(sh.order).padStart(2, "0")}`;
-    const characterIds = sh.characterNames.map((n) => charMap.get(n)?._id).filter(Boolean);
+    // map CHAR_N → ชื่อจริง → ObjectId
+    const characterIds = sh.characterNames
+      .map(ref => charMap.get(charReverseMap.get(ref) ?? ref)?._id)
+      .filter(Boolean);
     const dialogue = sh.dialogue.map((d) => ({
-      speakerId: charMap.get(d.speakerName)?._id,
+      speakerId: charMap.get(charReverseMap.get(d.speakerName) ?? d.speakerName)?._id,
       lineTh: d.lineTh,
       tone: d.tone,
       source: d.source,
