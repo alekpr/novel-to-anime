@@ -63,6 +63,7 @@ ${novelText}
     user: userPrompt,
     schema: SceneBreakdownResult,
     temperature: 0.1,
+    maxTokens: 32000,
   });
 
   await Job.findByIdAndUpdate(jobId, { progress: 0.6, "tokens.in": tokens.in, "tokens.out": tokens.out });

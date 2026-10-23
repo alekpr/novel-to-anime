@@ -65,10 +65,16 @@ async function callGeminiNative(opts: {
 
   const blockReason = json.promptFeedback?.blockReason;
   if (blockReason) {
+    console.error("[Gemini] promptFeedback blocked:", blockReason, "| safetyRatings:", JSON.stringify(json.promptFeedback));
     return { text: "", finishReason: "stop", tokensIn: json.usageMetadata?.promptTokenCount ?? 0, tokensOut: 0, blocked: blockReason };
   }
 
   const candidate = json.candidates?.[0];
+  const candidateBlock = candidate?.finishReason;
+  if (candidateBlock === "SAFETY" || candidateBlock === "PROHIBITED_CONTENT") {
+    console.error("[Gemini] candidate blocked:", candidateBlock, "| safetyRatings:", JSON.stringify((candidate as any)?.safetyRatings));
+    return { text: "", finishReason: "stop", tokensIn: json.usageMetadata?.promptTokenCount ?? 0, tokensOut: 0, blocked: candidateBlock };
+  }
   return {
     text: candidate?.content?.parts?.map(p => p.text ?? "").join("") ?? "",
     finishReason: candidate?.finishReason ?? "stop",

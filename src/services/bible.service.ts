@@ -43,6 +43,7 @@ export async function runBibleExtraction(
     user: userPrompt,
     schema: BibleExtractionResult,
     temperature: 0.1,
+    maxTokens: 32000,
   });
 
   await Job.findByIdAndUpdate(jobId, { progress: 0.6 });
