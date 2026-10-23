@@ -13,8 +13,9 @@ export const config = {
   mongoUri: process.env.MONGO_URI ?? "mongodb://127.0.0.1:27017/novel_anime",
   dataDir: path.resolve(process.env.DATA_DIR ?? "./data"),
   llm: {
+    provider: (process.env.LLM_PROVIDER ?? "gemini") as "gemini" | "deepseek",
     apiKey: process.env.LLM_API_KEY ?? "",
-    baseUrl: process.env.LLM_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta/openai",
+    baseUrl: process.env.LLM_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta",
     model: process.env.LLM_MODEL ?? "gemini-2.5-flash",
     fallback: {
       apiKey: process.env.LLM_FALLBACK_API_KEY ?? "",

@@ -18,6 +18,7 @@ export async function healthRoutes(app: FastifyInstance) {
 
   app.get("/settings", async () => {
     return {
+      llmProvider: config.llm.provider,
       llmModel: config.llm.model,
       llmBaseUrl: config.llm.baseUrl,
       llmKeySet: config.llm.apiKey.length > 0,

@@ -22,9 +22,8 @@ export interface StructuredResult<T> { data: T; tokens: TokenUsage }
 
 const MAX_TOKENS_CAP = 65536;
 
-function isGeminiUrl(baseUrl: string) {
-  // native API = generativelanguage.googleapis.com แต่ไม่ใช่ /openai compat
-  return baseUrl.includes("generativelanguage.googleapis.com") && !baseUrl.includes("/openai");
+function isGeminiNative(): boolean {
+  return config.llm.provider === "gemini";
 }
 
 async function callGeminiNative(opts: {
@@ -106,7 +105,7 @@ export async function callStructured<T extends z.ZodTypeAny>(
 ): Promise<StructuredResult<z.infer<T>>> {
   const model = opts.model ?? config.llm.model;
   const maxRetries = opts.maxRetries ?? 2;
-  const useGeminiNative = isGeminiUrl(config.llm.baseUrl);
+  const useGeminiNative = isGeminiNative();
   const client = useGeminiNative ? null : makeClient("primary");
 
   let lastError = "";
