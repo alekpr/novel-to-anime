@@ -63,6 +63,11 @@ function CharCard({ char, currentEp, onRefresh }: { char: Character; currentEp: 
     onSuccess: onRefresh,
   })
 
+  const resetAppearance = useMutation({
+    mutationFn: () => charactersApi.resetAppearance(char._id),
+    onSuccess: onRefresh,
+  })
+
   return (
     <div className={`border rounded-lg overflow-hidden ${hasNewOutfit ? 'border-purple-300' : ''}`}>
       <button onClick={() => setOpen(o => !o)}
@@ -94,6 +99,14 @@ function CharCard({ char, currentEp, onRefresh }: { char: Character; currentEp: 
               {genOutfits.isPending ? <><SpinIcon /> generating…</> : '🤖 Generate Outfit Prompts'}
             </button>
           )}
+          <button
+            onClick={(e) => { e.stopPropagation(); resetAppearance.mutate() }}
+            disabled={resetAppearance.isPending}
+            title="Reset appearanceBlock + characterSheetPrompt กลับไปยึดข้อมูลจากนิยายต้นฉบับ"
+            className="text-xs px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-40 flex items-center gap-1"
+          >
+            {resetAppearance.isPending ? <><SpinIcon /> resetting…</> : '↩ Reset'}
+          </button>
           <button
             onClick={(e) => { e.stopPropagation(); regenAppearance.mutate() }}
             disabled={regenAppearance.isPending}
@@ -153,6 +166,11 @@ function LocCard({ loc, onRefresh }: { loc: Location; onRefresh: () => void }) {
     onSuccess: onRefresh,
   })
 
+  const resetPrompts = useMutation({
+    mutationFn: () => locationsApi.resetPrompts(loc._id),
+    onSuccess: onRefresh,
+  })
+
   return (
     <div className="border rounded-lg overflow-hidden">
       <button onClick={() => setOpen(o => !o)}
@@ -163,6 +181,14 @@ function LocCard({ loc, onRefresh }: { loc: Location; onRefresh: () => void }) {
           {loc.status === 'approved' && <span className="text-green-600 text-xs">✔</span>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); resetPrompts.mutate() }}
+            disabled={resetPrompts.isPending}
+            title="Reset locationBlock + masterPrompt กลับไปยึดข้อมูลจากนิยายต้นฉบับ"
+            className="text-xs px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-40 flex items-center gap-1"
+          >
+            {resetPrompts.isPending ? <><SpinIcon /> resetting…</> : '↩ Reset'}
+          </button>
           <button
             onClick={(e) => { e.stopPropagation(); regenPrompts.mutate() }}
             disabled={regenPrompts.isPending}

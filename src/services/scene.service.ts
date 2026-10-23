@@ -5,6 +5,7 @@ import { Character } from "../models/Character.js";
 import { Location } from "../models/Location.js";
 import { Episode } from "../models/Episode.js";
 import { Scene } from "../models/Scene.js";
+import { Shot } from "../models/Shot.js";
 import { Job } from "../models/Job.js";
 
 export async function runSceneBreakdown(
@@ -66,39 +67,40 @@ ${novelText}
 
   await Job.findByIdAndUpdate(jobId, { progress: 0.6, "tokens.in": tokens.in, "tokens.out": tokens.out });
 
-  // สร้าง scene lookup maps
+  // reset S2/S3/S4 ของ EP นี้ก่อนสร้างใหม่
+  const oldScenes = await Scene.find({ episodeId }).select("_id").lean();
+  const oldSceneIds = oldScenes.map(s => s._id);
+  if (oldSceneIds.length > 0) {
+    await Shot.deleteMany({ sceneId: { $in: oldSceneIds } });
+  }
+  await Scene.deleteMany({ episodeId });
+
   const locMap = new Map(locations.map((l) => [l.name, l._id]));
   const charMap = new Map(characters.map((c) => [c.name, c._id]));
 
-  // upsert scenes (idempotent ตาม sceneCode)
+  // insert scenes ใหม่ทั้งหมด (ลบเดิมไปแล้วข้างบน)
   for (const s of data.scenes) {
     const sceneCode = `EP${String(episode.number).padStart(2, "0")}-S${String(s.order).padStart(2, "0")}`;
     const locationId = locMap.get(s.locationName);
-    const characterIds = s.characterNames
-      .map((n) => charMap.get(n))
-      .filter(Boolean);
+    const characterIds = s.characterNames.map((n) => charMap.get(n)).filter(Boolean);
 
-    await Scene.findOneAndUpdate(
-      { episodeId, sceneCode },
-      {
-        $set: {
-          projectId,
-          episodeId,
-          order: s.order,
-          sceneCode,
-          title: s.title,
-          summary: s.summary,
-          locationId,
-          timeOfDay: s.timeOfDay,
-          mood: s.mood,
-          characterIds,
-          sourceRange: { fromParagraph: s.fromParagraph, toParagraph: s.toParagraph },
-          estDurationSec: s.estDurationSec,
-          status: "draft",
-        },
-      },
-      { upsert: true, new: true }
-    );
+    await Scene.create({
+      projectId,
+      episodeId,
+      order: s.order,
+      sceneCode,
+      title: s.title,
+      summary: s.summary,
+      locationId,
+      timeOfDay: s.timeOfDay,
+      mood: s.mood,
+      characterIds,
+      sourceRange: { fromParagraph: s.fromParagraph, toParagraph: s.toParagraph },
+      estDurationSec: s.estDurationSec,
+      status: "draft",
+      clips: [],
+      videoPromptDraft: null,
+    });
   }
 
   await Episode.findByIdAndUpdate(episodeId, { status: "scenes_review" });

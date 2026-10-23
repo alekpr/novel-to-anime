@@ -34,6 +34,48 @@ export async function locationRoutes(app: FastifyInstance) {
     return l;
   });
 
+  // Reset locationBlock + masterPrompt จาก description fields ที่ S1 extract ไว้ (ยึดนิยายต้นฉบับ)
+  app.post("/locations/:id/reset-prompts", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const loc = await Location.findById(id).lean() as any;
+    if (!loc) return reply.code(404).send({ error: "Not found" });
+
+    const ResetResult = z.object({
+      locationBlock: z.string(),
+      masterPrompt: z.string(),
+    });
+
+    const { data } = await callStructured({
+      system: "You are an anime background designer. Convert structured location data into English image prompts. Stay faithful to the source data — do not invent details.",
+      user: `Generate location prompts strictly based on the following source data from the novel.
+
+Location: ${loc.name} (${loc.type})
+Description: ${loc.description ?? ""}
+Time of day: ${loc.timeOfDay ?? ""}
+Lighting: ${loc.lighting ?? ""}
+Weather: ${loc.weather ?? ""}
+Materials: ${loc.materials ?? ""}
+Key elements: ${(loc.keyElements ?? []).join(", ")}
+Mood: ${loc.mood ?? ""}
+
+Rules:
+1. locationBlock — concise descriptor for use inside video prompts: "[type], [key visual elements], [lighting], [mood]" — max 20 words
+2. masterPrompt — full prompt for generating a standalone background image: detailed, atmospheric, anime style
+3. Both must be faithful to the source data above — do not add details not mentioned
+
+Return JSON: { "locationBlock": "...", "masterPrompt": "..." }`,
+      schema: ResetResult,
+      temperature: 0.1,
+    });
+
+    const updated = await Location.findByIdAndUpdate(
+      id,
+      { $set: { locationBlock: data.locationBlock, masterPrompt: data.masterPrompt } },
+      { new: true }
+    );
+    return updated;
+  });
+
   // Regenerate locationBlock + masterPrompt
   app.post("/locations/:id/regenerate-prompts", async (req, reply) => {
     const { id } = req.params as { id: string };

@@ -115,6 +115,50 @@ Return JSON: { "outfits": [{ "name": "outfit name", "outfitPrompt": "...", "outf
     return c;
   });
 
+  // Reset appearanceBlock + characterSheetPrompt จาก appearance fields ที่ S1 extract ไว้ (ยึดนิยายต้นฉบับ)
+  app.post("/characters/:id/reset-appearance", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const char = await Character.findById(id).lean() as any;
+    if (!char) return reply.code(404).send({ error: "Not found" });
+
+    const ap = char.appearance ?? {};
+    const defaultOutfit = char.outfits?.[0]?.description ?? ap.defaultOutfit ?? "(use appropriate outfit for their role)";
+
+    const ResetResult = z.object({
+      appearanceBlock: z.string(),
+      characterSheetPrompt: z.string(),
+    });
+
+    const { data } = await callStructured({
+      system: "You are an anime character designer. Convert structured character data into English image prompts. Stay faithful to the source data — do not invent details.",
+      user: `Generate appearance prompts strictly based on the following source data from the novel.
+
+Character: ${char.name} (${char.role}, age: ${char.age ?? "unknown"})
+Hair: ${ap.hair ?? ""}
+Skin: ${ap.skin ?? ""}
+Eyes: ${ap.eyes ?? ""}
+Build: ${ap.build ?? ""}
+Distinguishing features: ${ap.distinguishing ?? ""}
+Default outfit: ${defaultOutfit}
+
+Rules:
+1. appearanceBlock — base appearance WITHOUT outfit: concise English descriptor "[hair], [eyes], [skin], [build], [distinguishing features]"
+2. characterSheetPrompt — full prompt for character sheet image: "anime character sheet, multiple views, front/side/back, [full appearance with default outfit], white background, reference sheet style, full body"
+3. Both must be faithful to the source data above — do not add details not mentioned
+
+Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "..." }`,
+      schema: ResetResult,
+      temperature: 0.1,
+    });
+
+    const updated = await Character.findByIdAndUpdate(
+      id,
+      { $set: { appearanceBlock: data.appearanceBlock, characterSheetPrompt: data.characterSheetPrompt } },
+      { new: true }
+    );
+    return updated;
+  });
+
   // Regenerate appearanceBlock + characterSheetPrompt (ใส่ context ตัวละครอื่นเพื่อให้แตกต่าง)
   app.post("/characters/:id/regenerate-appearance", async (req, reply) => {
     const { id } = req.params as { id: string };

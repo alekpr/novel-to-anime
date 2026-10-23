@@ -35,6 +35,24 @@ export async function buildShotsForScene(
     .map((c) => `- ${c.name}: ${c.personality ?? ""} | speechHabits: [${(c.voice?.speechHabits ?? []).join(", ")}]`)
     .join("\n");
 
+  // แปล sceneText เป็น English ก่อนส่ง Gemini เพื่อหลีกเลี่ยง PROHIBITED_CONTENT
+  let translatedSceneText = sceneText;
+  if (sceneText.trim()) {
+    const { z } = await import("zod");
+    const TranslateResult = z.object({ text: z.string() });
+    try {
+      const { callStructured: cs } = await import("../llm/client.js");
+      const { data: tx } = await cs({
+        system: "Translate the following Thai novel excerpt to English. Preserve all dialogue in quotes, character names, and narrative structure. Return JSON only.",
+        user: `Translate to English:\n${sceneText}\n\nReturn: { "text": "...translated text..." }`,
+        schema: TranslateResult,
+        temperature: 0.1,
+        maxTokens: 4000,
+      });
+      if (tx.text.trim()) translatedSceneText = tx.text;
+    } catch { /* ใช้ข้อความเดิม */ }
+  }
+
   const userPrompt = `
 ## Scene: ${scene.sceneCode} — ${scene.title}
 สถานที่: ${scene.timeOfDay ?? ""} | อารมณ์: ${scene.mood ?? ""} | **เวลาทั้งหมด: ${scene.estDurationSec ?? 30} วินาที (ควรได้ประมาณ ${Math.round(Number(scene.estDurationSec ?? 30) / 5)} shots)**
@@ -46,7 +64,7 @@ ${charContext || "(ไม่มี)"}
 ${prevSummary || "(เริ่มต้น EP)"}
 
 ## ข้อความต้นฉบับ
-${sceneText}
+${translatedSceneText}
 
 ## Schema ที่ต้องคืน
 \`\`\`json

@@ -108,6 +108,7 @@ export const charactersApi = {
   delete: (id: string) => api.delete(`/characters/${id}`).then(r => r.data),
   generateOutfitPrompts: (id: string) => api.post<{ updated: number; character: Character }>(`/characters/${id}/generate-outfit-prompts`).then(r => r.data),
   regenerateAppearance: (id: string) => api.post<Character>(`/characters/${id}/regenerate-appearance`).then(r => r.data),
+  resetAppearance: (id: string) => api.post<Character>(`/characters/${id}/reset-appearance`).then(r => r.data),
 }
 
 // Locations
@@ -116,6 +117,7 @@ export const locationsApi = {
   update: (id: string, data: Partial<Location>) => api.patch<Location>(`/locations/${id}`, data).then(r => r.data),
   approve: (id: string) => api.post<Location>(`/locations/${id}/approve`).then(r => r.data),
   regeneratePrompts: (id: string) => api.post<Location>(`/locations/${id}/regenerate-prompts`).then(r => r.data),
+  resetPrompts: (id: string) => api.post<Location>(`/locations/${id}/reset-prompts`).then(r => r.data),
 }
 
 // Scenes
