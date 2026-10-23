@@ -125,14 +125,7 @@ export async function callStructured<T extends z.ZodTypeAny>(
       });
 
       if (r.blocked) {
-        // วิเคราะห์ว่าส่วนไหนของ prompt ที่ trigger — ลองส่งแค่ system prompt ก่อน
-        const sysOnly = await callGeminiNative({
-          model, apiKey: config.llm.apiKey,
-          system: opts.system, user: "(test)",
-          maxTokens: 100, temperature: 0,
-        });
-        const source = sysOnly.blocked ? "system prompt" : "user prompt (shot dialogue/action)";
-        throw new Error(`Gemini blocked prompt [${r.blocked}] in ${source}`);
+        throw new Error(`Gemini blocked prompt [${r.blocked}] in user prompt`);
       }
 
       finishReason = r.finishReason;
