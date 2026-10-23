@@ -101,13 +101,21 @@ ${sceneText}
     const characterIds = sh.characterNames
       .map(ref => charMap.get(charReverseMap.get(ref) ?? ref)?._id)
       .filter(Boolean);
-    const dialogue = sh.dialogue.map((d) => ({
-      speakerId: charMap.get(charReverseMap.get(d.speakerName) ?? d.speakerName)?._id,
-      lineTh: d.lineTh,
-      tone: d.tone,
-      source: d.source,
-      reviewed: d.source === "original",
-    }));
+    // replace CHAR_N ใน action
+    let action = sh.action;
+    for (const [idx, name] of charReverseMap) action = action.split(idx).join(name);
+    const dialogue = sh.dialogue.map((d) => {
+      // replace CHAR_N ใน lineTh
+      let lineTh = d.lineTh;
+      for (const [idx, name] of charReverseMap) lineTh = lineTh.split(idx).join(name);
+      return {
+        speakerId: charMap.get(charReverseMap.get(d.speakerName) ?? d.speakerName)?._id,
+        lineTh,
+        tone: d.tone,
+        source: d.source,
+        reviewed: d.source === "original",
+      };
+    });
 
     await Shot.findOneAndUpdate(
       { episodeId, shotCode },
@@ -123,7 +131,7 @@ ${sceneText}
           breakQuality: sh.breakQuality,
           characterIds,
           locationId: scene.locationId,
-          action: sh.action,
+          action,
           emotion: sh.emotion,
           dialogue,
           narration: sh.narration,

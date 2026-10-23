@@ -8,6 +8,14 @@ import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
 import { Job } from "../models/Job.js";
 
+// replace CHAR_N/LOC_N กลับเป็นชื่อจริง
+function replaceIndexes(text: string, charMap: Map<string, string>, locMap: Map<string, string>): string {
+  let result = text;
+  for (const [idx, name] of charMap) result = result.split(idx).join(name);
+  for (const [idx, name] of locMap) result = result.split(idx).join(name);
+  return result;
+}
+
 export async function runSceneBreakdown(
   projectId: string,
   episodeId: string,
@@ -111,8 +119,9 @@ ${novelText}
       episodeId,
       order: s.order,
       sceneCode,
-      title: s.title,
-      summary: s.summary,
+      // replace CHAR_N/LOC_N ที่ค้างใน title/summary ด้วยชื่อจริง
+      title: replaceIndexes(s.title, charReverseMap, locReverseMap),
+      summary: replaceIndexes(s.summary, charReverseMap, locReverseMap),
       locationId,
       timeOfDay: s.timeOfDay,
       mood: s.mood,
