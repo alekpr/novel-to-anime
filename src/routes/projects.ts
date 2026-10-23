@@ -48,13 +48,17 @@ export async function projectRoutes(app: FastifyInstance) {
     const paragraphs = (rawParas.length > 1 ? rawParas : body.text.split(/\n/).map(t => t.trim()).filter(Boolean))
       .map((text, idx) => ({ idx, text }))
 
-    const episode = await Episode.create({
-      projectId: id,
-      number: body.number,
-      title: body.title,
-      paragraphs,
-      status: "ingested",
-    });
+    const episode = await Episode.findOneAndUpdate(
+      { projectId: id, number: body.number },
+      {
+        $set: {
+          title: body.title,
+          paragraphs,
+          status: "ingested",
+        },
+      },
+      { upsert: true, new: true }
+    );
     return reply.code(201).send(episode);
   });
 
