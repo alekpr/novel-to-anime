@@ -1,6 +1,8 @@
 import { FastifyInstance } from "fastify";
 import { Project } from "../models/Project.js";
 import { Episode } from "../models/Episode.js";
+import { Scene } from "../models/Scene.js";
+import { Shot } from "../models/Shot.js";
 import { z } from "zod";
 
 const CreateProjectBody = z.object({
@@ -47,6 +49,17 @@ export async function projectRoutes(app: FastifyInstance) {
     const rawParas = body.text.split(/\n{2,}/).map(t => t.trim()).filter(Boolean)
     const paragraphs = (rawParas.length > 1 ? rawParas : body.text.split(/\n/).map(t => t.trim()).filter(Boolean))
       .map((text, idx) => ({ idx, text }))
+
+    // clear S2/S3/S4 ของ EP นี้ก่อน import ใหม่
+    const oldEp = await Episode.findOne({ projectId: id, number: body.number }).select("_id").lean();
+    if (oldEp) {
+      const oldScenes = await Scene.find({ episodeId: oldEp._id }).select("_id").lean();
+      const oldSceneIds = oldScenes.map(s => s._id);
+      if (oldSceneIds.length > 0) {
+        await Shot.deleteMany({ sceneId: { $in: oldSceneIds } });
+      }
+      await Scene.deleteMany({ episodeId: oldEp._id });
+    }
 
     const episode = await Episode.findOneAndUpdate(
       { projectId: id, number: body.number },
