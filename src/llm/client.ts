@@ -23,7 +23,8 @@ export interface StructuredResult<T> { data: T; tokens: TokenUsage }
 const MAX_TOKENS_CAP = 65536;
 
 function isGeminiUrl(baseUrl: string) {
-  return baseUrl.includes("generativelanguage.googleapis.com");
+  // native API = generativelanguage.googleapis.com แต่ไม่ใช่ /openai compat
+  return baseUrl.includes("generativelanguage.googleapis.com") && !baseUrl.includes("/openai");
 }
 
 async function callGeminiNative(opts: {
