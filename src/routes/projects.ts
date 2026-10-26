@@ -79,4 +79,14 @@ export async function projectRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     return Episode.find({ projectId: id }).sort({ number: 1 });
   });
+
+  app.delete("/projects/:id/episodes/:epId", async (req, reply) => {
+    const { epId } = req.params as { id: string; epId: string };
+    const scenes = await Scene.find({ episodeId: epId }).select("_id").lean();
+    const sceneIds = scenes.map(s => s._id);
+    if (sceneIds.length > 0) await Shot.deleteMany({ sceneId: { $in: sceneIds } });
+    await Scene.deleteMany({ episodeId: epId });
+    await Episode.findByIdAndDelete(epId);
+    return reply.code(200).send({ deleted: true, scenes: sceneIds.length });
+  });
 }

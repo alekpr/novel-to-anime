@@ -7,6 +7,101 @@ import { useJobStream } from '../../hooks/useJobStream'
 import { episodesApi, scenesApi } from '../../lib/api'
 import type { Scene } from '../../lib/api'
 
+const MOODS = ['neutral', 'tense', 'romantic', 'sad', 'happy', 'mysterious', 'comedic', 'epic']
+
+function SceneEditModal({ scene, onClose }: { scene: Scene; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [form, setForm] = useState({
+    title: scene.title,
+    summary: scene.summary,
+    mood: scene.mood,
+    estDurationSec: scene.estDurationSec,
+    timeOfDay: (scene as any).timeOfDay ?? '',
+  })
+
+  const update = useMutation({
+    mutationFn: () => scenesApi.update(scene._id, form),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['scenes', scene.episodeId] })
+      onClose()
+    },
+  })
+
+  const set = (k: string, v: string | number) => setForm(f => ({ ...f, [k]: v }))
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center">
+          <h3 className="font-semibold text-lg">แก้ไข Scene <span className="text-gray-400 font-mono text-sm">{scene.sceneCode}</span></h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">ชื่อฉาก</label>
+            <input
+              className="w-full border rounded px-3 py-2 text-sm"
+              value={form.title}
+              onChange={e => set('title', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">สรุปฉาก</label>
+            <textarea
+              className="w-full border rounded px-3 py-2 text-sm resize-none"
+              rows={4}
+              value={form.summary}
+              onChange={e => set('summary', e.target.value)}
+            />
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-xs text-gray-500 mb-1 block">Mood</label>
+              <select
+                className="w-full border rounded px-3 py-2 text-sm"
+                value={form.mood}
+                onChange={e => set('mood', e.target.value)}
+              >
+                {MOODS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div className="w-32">
+              <label className="text-xs text-gray-500 mb-1 block">ความยาว (วินาที)</label>
+              <input
+                type="number" min={5}
+                className="w-full border rounded px-3 py-2 text-sm"
+                value={form.estDurationSec}
+                onChange={e => set('estDurationSec', Number(e.target.value))}
+              />
+            </div>
+            <div className="w-28">
+              <label className="text-xs text-gray-500 mb-1 block">เวลา</label>
+              <input
+                className="w-full border rounded px-3 py-2 text-sm"
+                placeholder="day / night…"
+                value={form.timeOfDay}
+                onChange={e => set('timeOfDay', e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm border rounded hover:bg-gray-50">ยกเลิก</button>
+          <button
+            onClick={() => update.mutate()}
+            disabled={update.isPending}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
+          >
+            {update.isPending ? 'กำลังบันทึก…' : 'บันทึก'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface Props {
   episodeId: string
   onSelectScene: (sceneId: string) => void
@@ -21,7 +116,7 @@ const moodColors: Record<string, string> = {
   neutral: 'bg-gray-100 text-gray-600',
 }
 
-function SceneCard({ scene, onClick, selected }: { scene: Scene; onClick: () => void; selected?: boolean }) {
+function SceneCard({ scene, onClick, selected, onEdit }: { scene: Scene; onClick: () => void; selected?: boolean; onEdit: () => void }) {
   return (
     <div
       onClick={onClick}
@@ -40,6 +135,10 @@ function SceneCard({ scene, onClick, selected }: { scene: Scene; onClick: () => 
             </span>
           )}
           <span className="text-xs text-gray-400">{scene.estDurationSec}s</span>
+          <button
+            onClick={e => { e.stopPropagation(); onEdit() }}
+            className="text-xs px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-100 text-gray-500"
+          >✏️</button>
         </div>
       </div>
       <p className="text-sm text-gray-600 line-clamp-2">{scene.summary}</p>
@@ -56,6 +155,7 @@ export function ScenesStep({ episodeId, onSelectScene, onDone }: Props) {
   const [jobId, setJobId] = useState<string | null>(null)
   const jobIdRef = useRef<string | null>(null)
   const [selectedScene, setSelectedScene] = useState<Scene | null>(null)
+  const [editingScene, setEditingScene] = useState<Scene | null>(null)
   const streamJob = useJobStream(jobId)
 
   const { data: scenes = [], isLoading } = useQuery({
@@ -115,6 +215,7 @@ export function ScenesStep({ episodeId, onSelectScene, onDone }: Props) {
               scene={sc}
               onClick={() => setSelectedScene(sc)}
               selected={selectedScene?._id === sc._id}
+              onEdit={() => setEditingScene(sc)}
             />
           ))}
         </div>
@@ -127,6 +228,8 @@ export function ScenesStep({ episodeId, onSelectScene, onDone }: Props) {
 
         <JobProgressPanel job={streamJob} onDismiss={() => setJobId(null)} />
       </div>
+
+      {editingScene && <SceneEditModal scene={editingScene} onClose={() => setEditingScene(null)} />}
 
       {/* Source text pane */}
       {selectedScene && (

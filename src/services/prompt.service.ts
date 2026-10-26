@@ -81,8 +81,9 @@ export async function runPromptGeneration(
 
   const shotList = s3shots.map((sh, i) => {
     const tones = sh.dialogue.map(d => d.tone).filter(Boolean).join(", ");
+    const hasDialogue = sh.dialogue.some(d => d.lineTh?.trim());
     return [
-      `Shot ${sh.order} [${sh.shotType}] ${sh.durationSec}s [${sh.breakQuality}]`,
+      `Shot ${sh.order} [${sh.shotType}] ${sh.durationSec}s [${sh.breakQuality}]${hasDialogue ? " [HAS_DIALOGUE — use MLS or closer]" : ""}`,
       `  action: ${translatedActions[i]}`,
       `  emotion: ${sh.emotion || "neutral"}`,
       tones ? `  dialogue_tone: ${tones}` : null,
@@ -151,7 +152,8 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
         breakQuality: sh.breakQuality as "hard" | "soft" | "avoid",
         note: undefined,
       },
-      camera: vis ? `${vis.camera}${vis.lighting ? ` | ${vis.lighting}` : ""}` : "",
+      camera: vis?.camera ?? "",
+      lighting: vis?.lighting ?? "",
       description: vis?.description ?? translatedActions[s3shots.indexOf(sh)] ?? "",
       dialogue,
       charactersInShot: sh.characterIds.map(id => id.toString()).filter(id => charIdToId.has(id)),

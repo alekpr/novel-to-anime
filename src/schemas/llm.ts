@@ -108,7 +108,10 @@ export const LLMDialogueLine = z.object({
 
 export const LLMShot = z.object({
   order: z.number().int().positive(),
-  shotType: z.string().transform((v) => (["wide", "medium", "close-up", "OTS", "insert", "POV"].includes(v) ? v : "medium")).pipe(z.enum(["wide", "medium", "close-up", "OTS", "insert", "POV"])).catch("medium"),
+  shotType: z.string().transform((v) => {
+    const valid = ["wide", "medium", "close-up", "medium-long", "insert", "establishing", "OTS", "POV"];
+    return valid.includes(v) ? v : "medium";
+  }).pipe(z.enum(["wide", "medium", "close-up", "medium-long", "insert", "establishing", "OTS", "POV"])).catch("medium"),
   camera: z.union([z.string(), z.null()]).transform(v => v ?? "").pipe(z.string()).catch(""),
   durationSec: z.number().min(1).max(20).default(4),
   breakQuality: z.string().transform((v) => (["hard", "soft", "avoid"].includes(v) ? v : "soft")).pipe(z.enum(["hard", "soft", "avoid"])).catch("soft"),
@@ -143,6 +146,7 @@ export const ShotDraft = z.object({
     note: z.string().optional(),
   }),
   camera: z.string(),
+  lighting: z.string().default(""),
   description: z.string(),
   dialogue: z.array(DialogueLine4a).max(4).default([]),
   charactersInShot: z.array(z.string()),
