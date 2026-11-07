@@ -18,16 +18,18 @@ function buildCharacterContext(char: any, factions: Faction[]) {
 
   // ถ้า costumePrompt ยาวมาก (character sheet style) — ดึงแค่ส่วน wearing...
   const extractWearingPart = (prompt: string) => {
-    const match = prompt.match(/wearing (.+?)(?:\.|,\s*(?:Preserve|Neutral|plain|white background)|$)/is);
-    return match ? `wearing ${match[1].trim()}` : prompt.slice(0, 300);
+    // ตัดทุกอย่างหลัง wearing ... จนถึงจุดที่เป็น instruction (Preserve/Neutral/plain/white background)
+    const wearingMatch = prompt.match(/(?:The character wears?|wearing)\s+(.+?)(?:\s*\.\s*(?:Preserve|Neutral|plain|No weapons|white background)|$)/is);
+    if (wearingMatch) return wearingMatch[1].trim().replace(/[.]+$/, '');
+    // fallback: เอาแค่  200 ตัวอักษรแรก
+    return prompt.slice(0, 200).replace(/[.]+$/, '');
   };
 
-  const factionOutfitHint = matchedFaction?.costumePrompt
-    ? extractWearingPart(matchedFaction.costumePrompt)
-    : "";
+  const rawFactionOutfit = matchedFaction?.costumePrompt ? extractWearingPart(matchedFaction.costumePrompt) : "";
+  const factionOutfitHint = rawFactionOutfit ? `wearing ${rawFactionOutfit}` : "";
 
   const factionContext = matchedFaction
-    ? `FACTION: ${matchedFaction.name}\nCostume description (Thai): ${matchedFaction.costumeDescription || "(none)"}\nOutfit style (use this as the outfit): ${factionOutfitHint}`
+    ? `FACTION: ${matchedFaction.name}\nCostume description (Thai): ${matchedFaction.costumeDescription || "(none)"}\nOutfit to use (English, outfit only): ${factionOutfitHint || "(see costumeDescription)"}`
     : factions.length > 0
       ? `Known factions:\n${factions.map(f => `- ${f.name}`).join("\n")}`
       : "";
@@ -37,6 +39,7 @@ function buildCharacterContext(char: any, factions: Faction[]) {
     distinguishing,
     matchedFaction,
     factionContext,
+    factionOutfitHint,
     defaultOutfit: char.outfits?.[0]?.description ?? ap.defaultOutfit ?? matchedFaction?.costumeDescription ?? "(use faction costume if applicable)",
   };
 }
@@ -193,7 +196,7 @@ Return JSON: { "outfits": [{ "name": "outfit name", "outfitPrompt": "...", "outf
 
     const project = await Project.findById(char.projectId).lean() as any;
     const factions: Faction[] = project?.factions ?? [];
-    const { ap, distinguishing, factionContext, defaultOutfit } = buildCharacterContext(char, factions);
+    const { ap, distinguishing, matchedFaction, factionContext, factionOutfitHint } = buildCharacterContext(char, factions);
 
     const ResetResult = z.object({
       appearanceBlock: z.string(),
@@ -201,40 +204,47 @@ Return JSON: { "outfits": [{ "name": "outfit name", "outfitPrompt": "...", "outf
       outfitPrompt: z.string(),
     });
 
-    const { data } = await callStructured({
-      system: "You are an anime character designer. Generate English image prompts. IMPORTANT: appearanceBlock describes ONLY the body/face/hair — NO outfit. The outfit goes in outfitPrompt and characterSheetPrompt only. NEVER output 'unknown'.",
-      user: `Generate appearance prompts for this character.
+    const outfitInstruction = factionOutfitHint || "wearing appropriate cultivation sect outfit";
 
-Character: ${char.name} (${char.role}, age: ${char.age || "unspecified"})
+    const { data } = await callStructured({
+      system: "You are an anime character designer. STRICT RULES: (1) appearanceBlock = face/hair/skin/build ONLY, no outfit words. (2) characterSheetPrompt must be ONE clean sentence. (3) NEVER invent scars/eyepatches/unique features unless stated. (4) NEVER output 'unknown'.",
+      user: `Character: ${char.name} (${char.role})
 Personality: ${char.personality || "unspecified"}
-Hair: ${ap.hair || "(infer — typical for their role in a xianxia cultivation story)"}
-Skin: ${ap.skin || "(infer)"}
-Eyes: ${ap.eyes || "(infer)"}
-Build: ${ap.build || "(infer)"}
 Distinguishing: ${distinguishing || "(none stated)"}
 ${factionContext ? `\n${factionContext}` : ""}
 
-Rules:
-1. appearanceBlock — ONLY face/hair/skin/build/distinguishing features, NO outfit: e.g. "young male, short black hair, dark eyes, lean build"
-2. outfitPrompt — "[appearanceBlock] [faction outfit style]" — MUST use faction outfit if provided above
-3. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearanceBlock] [faction outfit style], white background, reference sheet style, full body"
-4. Keep appearanceBlock SHORT and generic — do NOT invent scars, eyepatches, or unique features unless stated
-5. Infer missing appearance details from role and faction context (xianxia cultivation setting)
+Generate:
+1. appearanceBlock — SHORT, face/hair/skin/build only, no outfit. Example: "young adult male, short black hair, dark eyes, fair skin, lean build"
+2. outfitPrompt — "[appearanceBlock] ${outfitInstruction}"
+3. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearanceBlock] ${outfitInstruction}, white background, reference sheet style, full body"
 
 Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitPrompt": "..." }`,
       schema: ResetResult,
       temperature: 0.2,
     });
 
-    // อัปเดต outfit prompt ด้วยถ้ามี outfit อยู่แล้ว
     const updateSet: Record<string, unknown> = {
       appearanceBlock: data.appearanceBlock,
       characterSheetPrompt: data.characterSheetPrompt,
     };
     if (char.outfits?.length > 0) {
       updateSet["outfits.0.outfitPrompt"] = data.outfitPrompt;
+      updateSet["outfits.0.outfitSheetPrompt"] = data.characterSheetPrompt;
+      const updated = await Character.findByIdAndUpdate(id, { $set: updateSet }, { new: true });
+      return updated;
+    } else if (matchedFaction) {
+      const updated = await Character.findByIdAndUpdate(id, {
+        $set: updateSet,
+        $push: { outfits: {
+          name: `ชุด${matchedFaction.name}`,
+          description: matchedFaction.costumeDescription || matchedFaction.name,
+          outfitPrompt: data.outfitPrompt,
+          outfitSheetPrompt: data.characterSheetPrompt,
+          usedInScenes: [],
+        }},
+      }, { new: true });
+      return updated;
     }
-
     const updated = await Character.findByIdAndUpdate(id, { $set: updateSet }, { new: true });
     return updated;
   });
@@ -247,7 +257,7 @@ Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitP
 
     const project = await Project.findById(char.projectId).lean() as any;
     const factions: Faction[] = project?.factions ?? [];
-    const { distinguishing, factionContext, defaultOutfit } = buildCharacterContext(char, factions);
+    const { distinguishing, matchedFaction, factionContext, factionOutfitHint } = buildCharacterContext(char, factions);
 
     const others = await Character.find({ projectId: char.projectId, _id: { $ne: char._id } })
       .select("name role appearanceBlock").lean() as any[];
@@ -260,11 +270,11 @@ Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitP
       outfitPrompt: z.string(),
     });
 
-    const { data } = await callStructured({
-      system: "You are an anime character designer. Generate distinct English appearance descriptions. IMPORTANT: appearanceBlock = ONLY face/hair/skin/build — NO outfit. NEVER invent scars, eyepatches, or unique features unless stated in the source data. NEVER output 'unknown'.",
-      user: `Regenerate appearance for this character. Make them visually DISTINCT from others.
+    const outfitInstruction = factionOutfitHint || "wearing appropriate cultivation sect outfit";
 
-Character: ${char.name} (${char.role}, age: ${char.age || "unspecified"})
+    const { data } = await callStructured({
+      system: "You are an anime character designer. STRICT RULES: (1) appearanceBlock = face/hair/skin/build ONLY, no outfit. (2) characterSheetPrompt must be ONE clean sentence. (3) NEVER invent scars/eyepatches unless stated. (4) NEVER output 'unknown'.",
+      user: `Regenerate appearance for: ${char.name} (${char.role})
 Personality: ${char.personality || "unspecified"}
 Distinguishing: ${distinguishing || "(none stated)"}
 ${factionContext ? `\n${factionContext}` : ""}
@@ -272,12 +282,10 @@ ${factionContext ? `\n${factionContext}` : ""}
 OTHER characters (DO NOT duplicate their look):
 ${othersContext || "(none)"}
 
-Rules:
-1. appearanceBlock — ONLY face/hair/skin/build, NO outfit — must differ from all others above
-2. outfitPrompt — "[appearanceBlock] [faction outfit style]" — MUST use faction outfit if provided
-3. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearanceBlock] [faction outfit style], white background, reference sheet style, full body"
-4. Keep appearanceBlock SHORT: "[age] [gender], [hair], [eyes], [skin], [build]" — no invented unique features
-5. Infer from xianxia cultivation context if fields are empty
+Generate:
+1. appearanceBlock — SHORT, face/hair/skin/build only, must differ from others above
+2. outfitPrompt — "[appearanceBlock] ${outfitInstruction}"
+3. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearanceBlock] ${outfitInstruction}, white background, reference sheet style, full body"
 
 Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitPrompt": "..." }`,
       schema: AppearanceResult,
@@ -290,8 +298,22 @@ Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitP
     };
     if (char.outfits?.length > 0) {
       updateSet["outfits.0.outfitPrompt"] = data.outfitPrompt;
+      updateSet["outfits.0.outfitSheetPrompt"] = data.characterSheetPrompt;
+      const updated = await Character.findByIdAndUpdate(id, { $set: updateSet }, { new: true });
+      return updated;
+    } else if (matchedFaction) {
+      const updated = await Character.findByIdAndUpdate(id, {
+        $set: updateSet,
+        $push: { outfits: {
+          name: `ชุด${matchedFaction.name}`,
+          description: matchedFaction.costumeDescription || matchedFaction.name,
+          outfitPrompt: data.outfitPrompt,
+          outfitSheetPrompt: data.characterSheetPrompt,
+          usedInScenes: [],
+        }},
+      }, { new: true });
+      return updated;
     }
-
     const updated = await Character.findByIdAndUpdate(id, { $set: updateSet }, { new: true });
     return updated;
   });
