@@ -2,6 +2,35 @@ import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { callStructured } from "../llm/client.js";
 import { Character } from "../models/Character.js";
+import { Project } from "../models/Project.js";
+
+type Faction = { name: string; description: string; costumeDescription: string; costumePrompt: string };
+
+function buildCharacterContext(char: any, factions: Faction[]) {
+  const ap = char.appearance ?? {};
+  const distinguishing = ap.distinguishing ?? "";
+
+  // หา faction ที่ตรงกับ distinguishing หรือ role
+  const matchedFaction = factions.find(f =>
+    distinguishing.includes(f.name) ||
+    (char.personality ?? "").includes(f.name) ||
+    (char.aliases ?? []).some((a: string) => a.includes(f.name))
+  );
+
+  const factionContext = matchedFaction
+    ? `Faction: ${matchedFaction.name} — ${matchedFaction.costumeDescription}\nFaction costume prompt: ${matchedFaction.costumePrompt}`
+    : factions.length > 0
+      ? `Known factions in this story:\n${factions.map(f => `- ${f.name}: ${f.costumePrompt}`).join("\n")}`
+      : "";
+
+  return {
+    ap,
+    distinguishing,
+    matchedFaction,
+    factionContext,
+    defaultOutfit: char.outfits?.[0]?.description ?? ap.defaultOutfit ?? matchedFaction?.costumeDescription ?? "(use appropriate outfit for their role)",
+  };
+}
 
 export async function characterRoutes(app: FastifyInstance) {
   app.get("/projects/:id/characters", async (req) => {
@@ -147,103 +176,118 @@ Return JSON: { "outfits": [{ "name": "outfit name", "outfitPrompt": "...", "outf
     return c;
   });
 
-  // Reset appearanceBlock + characterSheetPrompt จาก appearance fields ที่ S1 extract ไว้ (ยึดนิยายต้นฉบับ)
+  // Reset appearanceBlock + characterSheetPrompt จาก appearance fields + faction context
   app.post("/characters/:id/reset-appearance", async (req, reply) => {
     const { id } = req.params as { id: string };
     const char = await Character.findById(id).lean() as any;
     if (!char) return reply.code(404).send({ error: "Not found" });
 
-    const ap = char.appearance ?? {};
-    const defaultOutfit = char.outfits?.[0]?.description ?? ap.defaultOutfit ?? "(use appropriate outfit for their role)";
+    const project = await Project.findById(char.projectId).lean() as any;
+    const factions: Faction[] = project?.factions ?? [];
+    const { ap, distinguishing, factionContext, defaultOutfit } = buildCharacterContext(char, factions);
 
     const ResetResult = z.object({
       appearanceBlock: z.string(),
       characterSheetPrompt: z.string(),
+      outfitPrompt: z.string(),
     });
 
     const { data } = await callStructured({
-      system: "You are an anime character designer. Convert structured character data into English image prompts. Stay faithful to the source data — do not invent details.",
-      user: `Generate appearance prompts strictly based on the following source data from the novel.
+      system: "You are an anime character designer. Generate English image prompts based on the provided data. If appearance fields are empty, infer reasonable values from the character's role, faction, and context. NEVER output 'unknown'.",
+      user: `Generate appearance prompts for this character.
 
-Character: ${char.name} (${char.role}, age: ${char.age ?? "unknown"})
-Hair: ${ap.hair ?? ""}
-Skin: ${ap.skin ?? ""}
-Eyes: ${ap.eyes ?? ""}
-Build: ${ap.build ?? ""}
-Distinguishing features: ${ap.distinguishing ?? ""}
+Character: ${char.name} (${char.role}, age: ${char.age || "unspecified"})
+Personality: ${char.personality || "unspecified"}
+Hair: ${ap.hair || "(infer from role/faction)"}
+Skin: ${ap.skin || "(infer from role/faction)"}
+Eyes: ${ap.eyes || "(infer from role/faction)"}
+Build: ${ap.build || "(infer from role/faction)"}
+Distinguishing: ${distinguishing || "(none stated)"}
 Default outfit: ${defaultOutfit}
+${factionContext ? `\n${factionContext}` : ""}
 
 Rules:
-1. appearanceBlock — base appearance WITHOUT outfit: concise English descriptor "[hair], [eyes], [skin], [build], [distinguishing features]"
-2. characterSheetPrompt — full prompt for character sheet image: "anime character sheet, multiple views, front/side/back, [full appearance with default outfit], white background, reference sheet style, full body"
-3. Both must be faithful to the source data above — do not add details not mentioned
+1. appearanceBlock — base appearance WITHOUT outfit in English: "[hair], [eyes], [skin], [build], [distinguishing]"
+2. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearance] wearing [outfit], white background, reference sheet style, full body"
+3. outfitPrompt — "[base appearance] wearing [outfit details]"
+4. If faction costume is provided, the outfit MUST match the faction's costume style
+5. Infer any missing appearance details from the character's role and faction context
 
-Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "..." }`,
+Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitPrompt": "..." }`,
       schema: ResetResult,
-      temperature: 0.1,
+      temperature: 0.2,
     });
 
-    const updated = await Character.findByIdAndUpdate(
-      id,
-      { $set: { appearanceBlock: data.appearanceBlock, characterSheetPrompt: data.characterSheetPrompt } },
-      { new: true }
-    );
+    // อัปเดต outfit prompt ด้วยถ้ามี outfit อยู่แล้ว
+    const updateSet: Record<string, unknown> = {
+      appearanceBlock: data.appearanceBlock,
+      characterSheetPrompt: data.characterSheetPrompt,
+    };
+    if (char.outfits?.length > 0) {
+      updateSet["outfits.0.outfitPrompt"] = data.outfitPrompt;
+    }
+
+    const updated = await Character.findByIdAndUpdate(id, { $set: updateSet }, { new: true });
     return updated;
   });
 
-  // Regenerate appearanceBlock + characterSheetPrompt (ใส่ context ตัวละครอื่นเพื่อให้แตกต่าง)
+  // Regenerate appearanceBlock + characterSheetPrompt (ใส่ faction + context ตัวละครอื่น)
   app.post("/characters/:id/regenerate-appearance", async (req, reply) => {
     const { id } = req.params as { id: string };
     const char = await Character.findById(id).lean() as any;
     if (!char) return reply.code(404).send({ error: "Not found" });
 
-    // ดึงตัวละครอื่นในโปรเจกต์เดียวกัน (ยกเว้นตัวนี้)
-    const others = await Character.find({ projectId: char.projectId, _id: { $ne: char._id } })
-      .select("name role appearanceBlock")
-      .lean() as any[];
+    const project = await Project.findById(char.projectId).lean() as any;
+    const factions: Faction[] = project?.factions ?? [];
+    const { distinguishing, factionContext, defaultOutfit } = buildCharacterContext(char, factions);
 
-    const othersContext = others
-      .filter((o) => o.appearanceBlock)
-      .map((o) => `- ${o.name} (${o.role}): ${o.appearanceBlock}`)
-      .join("\n");
+    const others = await Character.find({ projectId: char.projectId, _id: { $ne: char._id } })
+      .select("name role appearanceBlock").lean() as any[];
+    const othersContext = others.filter((o) => o.appearanceBlock)
+      .map((o) => `- ${o.name} (${o.role}): ${o.appearanceBlock}`).join("\n");
 
     const AppearanceResult = z.object({
       appearanceBlock: z.string(),
       characterSheetPrompt: z.string(),
+      outfitPrompt: z.string(),
     });
 
     const { data } = await callStructured({
-      system: "You are an anime character designer. Generate distinct, detailed English appearance descriptions. Each character MUST look visually unique — different hair color/style, eye color, build, and distinguishing features from all other characters.",
-      user: `Regenerate the appearance for this character. Make them visually DISTINCT from all other characters listed below.
+      system: "You are an anime character designer. Generate distinct, detailed English appearance descriptions. Each character MUST look visually unique. NEVER output 'unknown'.",
+      user: `Regenerate appearance for this character. Make them visually DISTINCT from others.
 
-Character to regenerate:
-- Name: ${char.name}
-- Role: ${char.role}
-- Age: ${char.age ?? "unknown"}
-- Personality: ${char.personality ?? ""}
-- Current appearanceBlock: ${char.appearanceBlock ?? "(none)"}
+Character: ${char.name} (${char.role}, age: ${char.age || "unspecified"})
+Personality: ${char.personality || "unspecified"}
+Distinguishing: ${distinguishing || "(none stated)"}
+Current appearanceBlock: ${char.appearanceBlock || "(none)"}
+${factionContext ? `\n${factionContext}` : ""}
 
-OTHER characters already defined (DO NOT duplicate their look):
+OTHER characters (DO NOT duplicate their look):
 ${othersContext || "(none)"}
 
 Rules:
-1. appearanceBlock — base appearance WITHOUT outfit: "[hair], [eyes], [skin], [build], [distinguishing features]" — must differ from all others above
-2. characterSheetPrompt — for character sheet image: "anime character sheet, multiple views, front/side/back, [full appearance with default outfit], white background, reference sheet style, full body"
-3. Both must be in English, ready to paste into an image generator
-4. Make the character memorable and visually unique
+1. appearanceBlock — base appearance WITHOUT outfit: must differ from all others above
+2. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearance] wearing [outfit], white background, reference sheet style, full body"
+3. outfitPrompt — "[base appearance] wearing [outfit details]"
+4. If faction costume is provided, outfit MUST match the faction's costume style
+5. Make the character memorable and visually unique
 
-Default outfit info: ${(char.outfits?.[0]?.description) ?? char.appearance?.defaultOutfit ?? "(use appropriate outfit for their role)"}
+Default outfit: ${defaultOutfit}
 
-Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "..." }`,
+Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitPrompt": "..." }`,
       schema: AppearanceResult,
       temperature: 0.7,
     });
 
-    const updated = await Character.findByIdAndUpdate(
-      id,
-      { $set: { appearanceBlock: data.appearanceBlock, characterSheetPrompt: data.characterSheetPrompt } },
-      { new: true }
-    );
+    const updateSet: Record<string, unknown> = {
+      appearanceBlock: data.appearanceBlock,
+      characterSheetPrompt: data.characterSheetPrompt,
+    };
+    if (char.outfits?.length > 0) {
+      updateSet["outfits.0.outfitPrompt"] = data.outfitPrompt;
+    }
+
+    const updated = await Character.findByIdAndUpdate(id, { $set: updateSet }, { new: true });
     return updated;
   });
 }
