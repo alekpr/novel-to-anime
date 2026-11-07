@@ -10,17 +10,26 @@ function buildCharacterContext(char: any, factions: Faction[]) {
   const ap = char.appearance ?? {};
   const distinguishing = ap.distinguishing ?? "";
 
-  // หา faction ที่ตรงกับ distinguishing หรือ role
   const matchedFaction = factions.find(f =>
     distinguishing.includes(f.name) ||
     (char.personality ?? "").includes(f.name) ||
     (char.aliases ?? []).some((a: string) => a.includes(f.name))
   );
 
+  // ถ้า costumePrompt ยาวมาก (character sheet style) — ดึงแค่ส่วน wearing...
+  const extractWearingPart = (prompt: string) => {
+    const match = prompt.match(/wearing (.+?)(?:\.|,\s*(?:Preserve|Neutral|plain|white background)|$)/is);
+    return match ? `wearing ${match[1].trim()}` : prompt.slice(0, 300);
+  };
+
+  const factionOutfitHint = matchedFaction?.costumePrompt
+    ? extractWearingPart(matchedFaction.costumePrompt)
+    : "";
+
   const factionContext = matchedFaction
-    ? `Faction: ${matchedFaction.name} — ${matchedFaction.costumeDescription}\nFaction costume prompt: ${matchedFaction.costumePrompt}`
+    ? `FACTION: ${matchedFaction.name}\nCostume description (Thai): ${matchedFaction.costumeDescription || "(none)"}\nOutfit style (use this as the outfit): ${factionOutfitHint}`
     : factions.length > 0
-      ? `Known factions in this story:\n${factions.map(f => `- ${f.name}: ${f.costumePrompt}`).join("\n")}`
+      ? `Known factions:\n${factions.map(f => `- ${f.name}`).join("\n")}`
       : "";
 
   return {
@@ -28,7 +37,7 @@ function buildCharacterContext(char: any, factions: Faction[]) {
     distinguishing,
     matchedFaction,
     factionContext,
-    defaultOutfit: char.outfits?.[0]?.description ?? ap.defaultOutfit ?? matchedFaction?.costumeDescription ?? "(use appropriate outfit for their role)",
+    defaultOutfit: char.outfits?.[0]?.description ?? ap.defaultOutfit ?? matchedFaction?.costumeDescription ?? "(use faction costume if applicable)",
   };
 }
 
@@ -193,25 +202,24 @@ Return JSON: { "outfits": [{ "name": "outfit name", "outfitPrompt": "...", "outf
     });
 
     const { data } = await callStructured({
-      system: "You are an anime character designer. Generate English image prompts based on the provided data. If appearance fields are empty, infer reasonable values from the character's role, faction, and context. NEVER output 'unknown'.",
+      system: "You are an anime character designer. Generate English image prompts. IMPORTANT: appearanceBlock describes ONLY the body/face/hair — NO outfit. The outfit goes in outfitPrompt and characterSheetPrompt only. NEVER output 'unknown'.",
       user: `Generate appearance prompts for this character.
 
 Character: ${char.name} (${char.role}, age: ${char.age || "unspecified"})
 Personality: ${char.personality || "unspecified"}
-Hair: ${ap.hair || "(infer from role/faction)"}
-Skin: ${ap.skin || "(infer from role/faction)"}
-Eyes: ${ap.eyes || "(infer from role/faction)"}
-Build: ${ap.build || "(infer from role/faction)"}
+Hair: ${ap.hair || "(infer — typical for their role in a xianxia cultivation story)"}
+Skin: ${ap.skin || "(infer)"}
+Eyes: ${ap.eyes || "(infer)"}
+Build: ${ap.build || "(infer)"}
 Distinguishing: ${distinguishing || "(none stated)"}
-Default outfit: ${defaultOutfit}
 ${factionContext ? `\n${factionContext}` : ""}
 
 Rules:
-1. appearanceBlock — base appearance WITHOUT outfit in English: "[hair], [eyes], [skin], [build], [distinguishing]"
-2. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearance] wearing [outfit], white background, reference sheet style, full body"
-3. outfitPrompt — "[base appearance] wearing [outfit details]"
-4. If faction costume is provided, the outfit MUST match the faction's costume style
-5. Infer any missing appearance details from the character's role and faction context
+1. appearanceBlock — ONLY face/hair/skin/build/distinguishing features, NO outfit: e.g. "young male, short black hair, dark eyes, lean build"
+2. outfitPrompt — "[appearanceBlock] [faction outfit style]" — MUST use faction outfit if provided above
+3. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearanceBlock] [faction outfit style], white background, reference sheet style, full body"
+4. Keep appearanceBlock SHORT and generic — do NOT invent scars, eyepatches, or unique features unless stated
+5. Infer missing appearance details from role and faction context (xianxia cultivation setting)
 
 Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitPrompt": "..." }`,
       schema: ResetResult,
@@ -253,26 +261,23 @@ Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitP
     });
 
     const { data } = await callStructured({
-      system: "You are an anime character designer. Generate distinct, detailed English appearance descriptions. Each character MUST look visually unique. NEVER output 'unknown'.",
+      system: "You are an anime character designer. Generate distinct English appearance descriptions. IMPORTANT: appearanceBlock = ONLY face/hair/skin/build — NO outfit. NEVER invent scars, eyepatches, or unique features unless stated in the source data. NEVER output 'unknown'.",
       user: `Regenerate appearance for this character. Make them visually DISTINCT from others.
 
 Character: ${char.name} (${char.role}, age: ${char.age || "unspecified"})
 Personality: ${char.personality || "unspecified"}
 Distinguishing: ${distinguishing || "(none stated)"}
-Current appearanceBlock: ${char.appearanceBlock || "(none)"}
 ${factionContext ? `\n${factionContext}` : ""}
 
 OTHER characters (DO NOT duplicate their look):
 ${othersContext || "(none)"}
 
 Rules:
-1. appearanceBlock — base appearance WITHOUT outfit: must differ from all others above
-2. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearance] wearing [outfit], white background, reference sheet style, full body"
-3. outfitPrompt — "[base appearance] wearing [outfit details]"
-4. If faction costume is provided, outfit MUST match the faction's costume style
-5. Make the character memorable and visually unique
-
-Default outfit: ${defaultOutfit}
+1. appearanceBlock — ONLY face/hair/skin/build, NO outfit — must differ from all others above
+2. outfitPrompt — "[appearanceBlock] [faction outfit style]" — MUST use faction outfit if provided
+3. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearanceBlock] [faction outfit style], white background, reference sheet style, full body"
+4. Keep appearanceBlock SHORT: "[age] [gender], [hair], [eyes], [skin], [build]" — no invented unique features
+5. Infer from xianxia cultivation context if fields are empty
 
 Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitPrompt": "..." }`,
       schema: AppearanceResult,
