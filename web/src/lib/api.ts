@@ -122,8 +122,12 @@ export const charactersApi = {
 // Factions
 export const factionsApi = {
   list: (projectId: string) => api.get<Faction[]>(`/projects/${projectId}/factions`).then(r => r.data),
+  create: (projectId: string, data: Partial<Faction> & { name: string }) =>
+    api.post<Faction[]>(`/projects/${projectId}/factions`, data).then(r => r.data),
   update: (projectId: string, name: string, data: Partial<Faction>) =>
     api.patch<Faction[]>(`/projects/${projectId}/factions/${encodeURIComponent(name)}`, data).then(r => r.data),
+  delete: (projectId: string, name: string) =>
+    api.delete<Faction[]>(`/projects/${projectId}/factions/${encodeURIComponent(name)}`).then(r => r.data),
 }
 
 // Locations

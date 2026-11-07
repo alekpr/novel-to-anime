@@ -190,7 +190,7 @@ function LocCard({ loc, onApprove, onUpdate }: {
   )
 }
 
-function FactionCard({ faction, onUpdate }: { faction: Faction; onUpdate: (data: Partial<Faction>) => void }) {
+function FactionCard({ faction, onUpdate, onDelete }: { faction: Faction; onUpdate: (data: Partial<Faction>) => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -204,15 +204,54 @@ function FactionCard({ faction, onUpdate }: { faction: Faction; onUpdate: (data:
       {open && (
         <div className="px-4 pb-4 pt-2 border-t bg-gray-50 space-y-3">
           <EditableField label="คำอธิบาย" value={faction.costumeDescription} onSave={v => onUpdate({ costumeDescription: v })} />
-          <div>
-            <div className="text-xs text-gray-500 mb-1">Costume Prompt (English)</div>
-            <div className="flex gap-1 items-start group">
-              <span className="text-xs font-mono bg-white border rounded p-2 flex-1 text-gray-700 whitespace-pre-wrap">{faction.costumePrompt || <span className="text-gray-300">—</span>}</span>
-            </div>
-            <EditableField label="" value={faction.costumePrompt} onSave={v => onUpdate({ costumePrompt: v })} />
-          </div>
+          <EditableField label="Costume Prompt" value={faction.costumePrompt} onSave={v => onUpdate({ costumePrompt: v })} />
+          <button
+            onClick={() => { if (confirm(`ลบ faction "${faction.name}"?`)) onDelete() }}
+            className="text-xs px-2 py-1 text-red-500 border border-red-200 rounded hover:bg-red-50"
+          >✕ ลบ</button>
         </div>
       )}
+    </div>
+  )
+}
+
+function AddFactionModal({ onClose, onSave }: { onClose: () => void; onSave: (f: Partial<Faction> & { name: string }) => void }) {
+  const [form, setForm] = useState({ name: '', description: '', costumeDescription: '', costumePrompt: '' })
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center">
+          <h3 className="font-semibold text-lg">เพิ่ม Faction / กลุ่ม</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">ชื่อกลุ่ม *</label>
+            <input className="w-full border rounded px-3 py-2 text-sm" placeholder="เช่น ศิษย์สายใน" value={form.name} onChange={e => set('name', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">คำอธิบาย (ไทย)</label>
+            <input className="w-full border rounded px-3 py-2 text-sm" placeholder="บทบาทของกลุ่มในเรื่อง" value={form.description} onChange={e => set('description', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">บรรยายชุด (ไทย)</label>
+            <textarea className="w-full border rounded px-3 py-2 text-sm resize-none" rows={2} placeholder="ชุดสีอะไร วัสดุอะไร ลวดลายอะไร" value={form.costumeDescription} onChange={e => set('costumeDescription', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Costume Prompt (English — สำหรับ image gen)</label>
+            <textarea className="w-full border rounded px-3 py-2 text-sm resize-none font-mono" rows={3} placeholder='wearing pale blue inner robe with silver embroidery, white sash, inner disciple style' value={form.costumePrompt} onChange={e => set('costumePrompt', e.target.value)} />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm border rounded hover:bg-gray-50">ยกเลิก</button>
+          <button
+            onClick={() => { if (form.name.trim()) { onSave(form); onClose() } }}
+            disabled={!form.name.trim()}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
+          >บันทึก</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -220,6 +259,7 @@ function FactionCard({ faction, onUpdate }: { faction: Faction; onUpdate: (data:
 export function BibleStep({ projectId, episodeId, onDone }: Props) {
   const qc = useQueryClient()
   const [tab, setTab] = useState<'chars' | 'locs' | 'factions'>('chars')
+  const [showAddFaction, setShowAddFaction] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const jobIdRef = useRef<string | null>(null)
   const streamJob = useJobStream(jobId)
@@ -296,6 +336,14 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
   })
   const updateFaction = useMutation({
     mutationFn: ({ name, data }: { name: string; data: Partial<Faction> }) => factionsApi.update(projectId, name, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['factions', projectId] }),
+  })
+  const createFaction = useMutation({
+    mutationFn: (data: Partial<Faction> & { name: string }) => factionsApi.create(projectId, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['factions', projectId] }),
+  })
+  const deleteFaction = useMutation({
+    mutationFn: (name: string) => factionsApi.delete(projectId, name),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['factions', projectId] }),
   })
 
@@ -376,13 +424,23 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
               ))
             )}
             {tab === 'factions' && (
-              factions.length === 0
-                ? <div className="text-gray-400 text-sm">ยังไม่มีข้อมูลกลุ่ม — ให้ AI วิเคราะห์ก่อน</div>
-                : factions.map(f => (
-                  <FactionCard key={f.name} faction={f}
-                    onUpdate={(data) => updateFaction.mutate({ name: f.name, data })}
-                  />
-                ))
+              <>
+                <button
+                  onClick={() => setShowAddFaction(true)}
+                  className="text-sm px-3 py-1.5 border border-blue-300 text-blue-600 rounded hover:bg-blue-50"
+                >
+                  + เพิ่ม Faction
+                </button>
+                {factions.length === 0
+                  ? <div className="text-gray-400 text-sm">ยังไม่มีข้อมูลกลุ่ม — ให้ AI วิเคราะห์หรือเพิ่มเอง</div>
+                  : factions.map(f => (
+                    <FactionCard key={f.name} faction={f}
+                      onUpdate={(data) => updateFaction.mutate({ name: f.name, data })}
+                      onDelete={() => deleteFaction.mutate(f.name)}
+                    />
+                  ))
+                }
+              </>
             )}
           </div>
 
@@ -403,6 +461,12 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
       )}
 
       <JobProgressPanel job={streamJob} onDismiss={() => setJobId(null)} />
+      {showAddFaction && (
+        <AddFactionModal
+          onClose={() => setShowAddFaction(false)}
+          onSave={(data) => createFaction.mutate(data)}
+        />
+      )}
     </div>
   )
 }

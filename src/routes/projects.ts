@@ -87,6 +87,30 @@ export async function projectRoutes(app: FastifyInstance) {
     return project.factions ?? [];
   });
 
+  app.post("/projects/:id/factions", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as { name: string; description?: string; costumeDescription?: string; costumePrompt?: string };
+    if (!body.name?.trim()) return reply.code(400).send({ error: "name required" });
+    const project = await Project.findOneAndUpdate(
+      { _id: id, "factions.name": { $ne: body.name.trim() } },
+      { $push: { factions: { name: body.name.trim(), description: body.description ?? "", costumeDescription: body.costumeDescription ?? "", costumePrompt: body.costumePrompt ?? "" } } },
+      { new: true }
+    ).select("factions").lean() as any;
+    if (!project) return reply.code(409).send({ error: "Faction name already exists" });
+    return project.factions ?? [];
+  });
+
+  app.delete("/projects/:id/factions/:name", async (req, reply) => {
+    const { id, name } = req.params as { id: string; name: string };
+    const project = await Project.findByIdAndUpdate(
+      id,
+      { $pull: { factions: { name: decodeURIComponent(name) } } },
+      { new: true }
+    ).select("factions").lean() as any;
+    if (!project) return reply.code(404).send({ error: "Not found" });
+    return project.factions ?? [];
+  });
+
   app.patch("/projects/:id/factions/:name", async (req, reply) => {
     const { id, name } = req.params as { id: string; name: string };
     const body = req.body as Partial<{ description: string; costumeDescription: string; costumePrompt: string }>;
