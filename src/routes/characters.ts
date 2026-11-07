@@ -202,6 +202,12 @@ Return JSON: { "outfits": [{ "name": "outfit name", "outfitPrompt": "...", "outf
       appearanceBlock: z.string(),
       characterSheetPrompt: z.string(),
       outfitPrompt: z.string(),
+      appearance: z.object({
+        hair: z.string().default(""),
+        skin: z.string().default(""),
+        eyes: z.string().default(""),
+        build: z.string().default(""),
+      }).default({}),
     });
 
     const outfitInstruction = factionOutfitHint || "wearing appropriate cultivation sect outfit";
@@ -214,11 +220,12 @@ Distinguishing: ${distinguishing || "(none stated)"}
 ${factionContext ? `\n${factionContext}` : ""}
 
 Generate:
-1. appearanceBlock — SHORT, face/hair/skin/build only, no outfit. Example: "young adult male, short black hair, dark eyes, fair skin, lean build"
-2. outfitPrompt — "[appearanceBlock] ${outfitInstruction}"
-3. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearanceBlock] ${outfitInstruction}, white background, reference sheet style, full body"
+1. appearance — { hair, skin, eyes, build } each as a short English descriptor (e.g. "short black hair", "fair skin", "dark eyes", "lean build")
+2. appearanceBlock — combine appearance into one line: "[hair], [eyes], [skin], [build]" — NO outfit
+3. outfitPrompt — "[appearanceBlock] ${outfitInstruction}"
+4. characterSheetPrompt — "anime character sheet, multiple views, front/side/back, [appearanceBlock] ${outfitInstruction}, white background, reference sheet style, full body"
 
-Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitPrompt": "..." }`,
+Return JSON: { "appearance": { "hair": "...", "skin": "...", "eyes": "...", "build": "..." }, "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitPrompt": "..." }`,
       schema: ResetResult,
       temperature: 0.2,
     });
@@ -226,6 +233,14 @@ Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitP
     const updateSet: Record<string, unknown> = {
       appearanceBlock: data.appearanceBlock,
       characterSheetPrompt: data.characterSheetPrompt,
+      "appearance.hair": data.appearance?.hair || ap.hair || "",
+      "appearance.skin": data.appearance?.skin || ap.skin || "",
+      "appearance.eyes": data.appearance?.eyes || ap.eyes || "",
+      "appearance.build": data.appearance?.build || ap.build || "",
+      "appearance.inferredFields": [...new Set([
+        ...(ap.inferredFields ?? []),
+        ...(["hair","skin","eyes","build"] as const).filter(f => !ap[f] && !(data.appearance as any)?.[f]),
+      ])],
     };
     if (char.outfits?.length > 0) {
       updateSet["outfits.0.outfitPrompt"] = data.outfitPrompt;
