@@ -39,19 +39,22 @@ function EditableField({ label, value, onSave }: { label: string; value: string;
   )
 }
 
-function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, currentEp }: {
+function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, onFixUnknown, currentEp }: {
   char: Character
   onApprove: () => void
   onUpdate: (data: Partial<Character>) => void
   onDelete: () => void
   onRegenerate: () => void
   onReset: () => void
+  onFixUnknown: () => void
   currentEp: number
 }) {
   const [open, setOpen] = useState(char.status !== 'approved')
   const [regenLoading, setRegenLoading] = useState(false)
   const inferred = char.appearance?.inferredFields ?? []
   const outfits = char.outfits ?? []
+  const hasUnknown = char.appearance && Object.entries(char.appearance)
+    .some(([k, v]) => k !== 'inferredFields' && String(v).toLowerCase() === 'unknown')
   // outfit ที่เพิ่งเข้ามาใน EP นี้ = usedInScenes ว่าง (ยังไม่ได้ assign) หรือดูจาก episodes
   const newOutfitThreshold = outfits.length > 1 ? outfits.slice(-Math.max(1, outfits.length - 1)) : []
 
@@ -98,7 +101,16 @@ function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, 
           </div>
 
           {/* Regenerate buttons */}
-          <div className="flex gap-2 pt-1">
+          <div className="flex gap-2 pt-1 flex-wrap">
+            {hasUnknown && (
+              <button
+                onClick={async () => { setRegenLoading(true); await onFixUnknown(); setRegenLoading(false) }}
+                disabled={regenLoading}
+                className="text-xs px-2 py-1 border border-orange-300 text-orange-600 rounded hover:bg-orange-50 disabled:opacity-40"
+              >
+                🧹 ล้าง unknown
+              </button>
+            )}
             <button
               onClick={async () => { setRegenLoading(true); await onReset(); setRegenLoading(false) }}
               disabled={regenLoading}
@@ -278,6 +290,10 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
     mutationFn: (id: string) => charactersApi.resetAppearance(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['characters', projectId] }),
   })
+  const fixUnknownChar = useMutation({
+    mutationFn: (id: string) => charactersApi.fixUnknown(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['characters', projectId] }),
+  })
   const updateFaction = useMutation({
     mutationFn: ({ name, data }: { name: string; data: Partial<Faction> }) => factionsApi.update(projectId, name, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['factions', projectId] }),
@@ -346,6 +362,7 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
                   onUpdate={(data) => updateChar.mutate({ id: c._id, data })}
                   onRegenerate={() => regenerateChar.mutateAsync(c._id)}
                   onReset={() => resetChar.mutateAsync(c._id)}
+                  onFixUnknown={() => fixUnknownChar.mutateAsync(c._id)}
                 />
               ))
             )}

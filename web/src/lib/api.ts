@@ -116,6 +116,7 @@ export const charactersApi = {
   generateOutfitPrompts: (id: string) => api.post<{ updated: number; character: Character }>(`/characters/${id}/generate-outfit-prompts`).then(r => r.data),
   regenerateAppearance: (id: string) => api.post<Character>(`/characters/${id}/regenerate-appearance`).then(r => r.data),
   resetAppearance: (id: string) => api.post<Character>(`/characters/${id}/reset-appearance`).then(r => r.data),
+  fixUnknown: (id: string) => api.post<Character>(`/characters/${id}/fix-unknown`).then(r => r.data),
 }
 
 // Factions

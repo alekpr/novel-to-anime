@@ -10,6 +10,14 @@ export const LLMAppearance = z.object({
   distinguishing: z.string().default(""),
   defaultOutfit: z.string().default(""),
   inferredFields: z.array(z.string()).default([]),
+}).transform(ap => {
+  const UNKNOWN = /^unknown$/i;
+  const fields = ["hair", "skin", "eyes", "build", "defaultOutfit"] as const;
+  const inferred = new Set(ap.inferredFields);
+  for (const f of fields) {
+    if (UNKNOWN.test(ap[f])) { ap = { ...ap, [f]: "" }; inferred.add(f); }
+  }
+  return { ...ap, inferredFields: [...inferred] };
 });
 
 export const LLMOutfit = z.object({
@@ -29,13 +37,19 @@ export const LLMVoice = z.object({
   defaultEmotion: z.string().default(""),
   speechHabits: z.array(z.string()).default([]),
   sampleLines: z.array(z.string()).default([]),
+}).transform(v => {
+  const UNKNOWN = /^unknown$/i;
+  const fields = ["gender", "ageRange", "pitch", "timbre", "pace", "accent", "defaultEmotion"] as const;
+  let out = { ...v };
+  for (const f of fields) { if (UNKNOWN.test(out[f])) out = { ...out, [f]: "" }; }
+  return out;
 });
 
 export const LLMCharacter = z.object({
   name: z.string(),
   aliases: z.array(z.string()).default([]),
   role: z.string().transform((v) => (["main", "support", "extra"].includes(v) ? v : "support")).pipe(z.enum(["main", "support", "extra"])).catch("support"),
-  age: z.string().default(""),
+  age: z.string().default("").transform(v => /^unknown$/i.test(v) ? "" : v),
   personality: z.string().default(""),
   appearance: LLMAppearance.default({}),
   outfits: z.array(LLMOutfit).default([]),

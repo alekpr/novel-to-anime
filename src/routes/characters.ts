@@ -103,6 +103,38 @@ Return JSON: { "outfits": [{ "name": "outfit name", "outfitPrompt": "...", "outf
     return { updated: data.outfits.length, character: result };
   });
 
+  // Fix unknown fields in existing character (clean up old data)
+  app.post("/characters/:id/fix-unknown", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const char = await Character.findById(id).lean() as any;
+    if (!char) return reply.code(404).send({ error: "Not found" });
+
+    const UNKNOWN = /^unknown$/i;
+    const ap = char.appearance ?? {};
+    const apFields = ["hair", "skin", "eyes", "build", "defaultOutfit"];
+    const inferred = new Set<string>(ap.inferredFields ?? []);
+    const apSet: Record<string, string> = {};
+    for (const f of apFields) {
+      if (UNKNOWN.test(ap[f] ?? "")) { apSet[`appearance.${f}`] = ""; inferred.add(f); }
+    }
+    apSet["appearance.inferredFields"] = JSON.stringify([...inferred]) as any;
+
+    const voice = char.voice ?? {};
+    const voiceFields = ["gender", "ageRange", "pitch", "timbre", "pace", "accent", "defaultEmotion"];
+    const voiceSet: Record<string, string> = {};
+    for (const f of voiceFields) {
+      if (UNKNOWN.test(voice[f] ?? "")) voiceSet[`voice.${f}`] = "";
+    }
+
+    const ageSet = UNKNOWN.test(char.age ?? "") ? { age: "" } : {};
+
+    const $set = { ...apSet, ...voiceSet, ...ageSet,
+      "appearance.inferredFields": [...inferred] };
+
+    const updated = await Character.findByIdAndUpdate(id, { $set }, { new: true });
+    return updated;
+  });
+
   // Regenerate (ระบุ field ที่ต้องการ — ตอนนี้ reset เป็น draft ให้ S1 รันใหม่)
   app.post("/characters/:id/regenerate", async (req, reply) => {
     const { id } = req.params as { id: string };
