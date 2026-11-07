@@ -1,5 +1,12 @@
 import { Schema, model, Types } from "mongoose";
 
+const factionSchema = new Schema({
+  name: { type: String, required: true },
+  description: { type: String, default: "" },
+  costumeDescription: { type: String, default: "" },  // ภาษาไทย
+  costumePrompt: { type: String, default: "" },        // English สำหรับ image gen
+}, { _id: false });
+
 const styleGuideSchema = new Schema({
   artStyle: { type: String, default: "anime cel-shaded" },
   aspectRatio: { type: String, default: "16:9" },
@@ -37,6 +44,7 @@ const projectSchema = new Schema({
   title: { type: String, required: true },
   language: { type: String, default: "th" },
   targetEpDurationSec: { type: Number, default: 480 }, // 8 นาที
+  factions: { type: [factionSchema], default: [] },
   styleGuide: { type: styleGuideSchema, default: () => ({}) },
   videoModel: { type: videoModelSchema, default: () => ({}) },
   clipPolicy: { type: clipPolicySchema, default: () => ({}) },

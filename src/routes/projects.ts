@@ -80,6 +80,29 @@ export async function projectRoutes(app: FastifyInstance) {
     return Episode.find({ projectId: id }).sort({ number: 1 });
   });
 
+  app.get("/projects/:id/factions", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const project = await Project.findById(id).select("factions").lean() as any;
+    if (!project) return reply.code(404).send({ error: "Not found" });
+    return project.factions ?? [];
+  });
+
+  app.patch("/projects/:id/factions/:name", async (req, reply) => {
+    const { id, name } = req.params as { id: string; name: string };
+    const body = req.body as Partial<{ description: string; costumeDescription: string; costumePrompt: string }>;
+    const set: Record<string, unknown> = {};
+    if (body.description !== undefined) set["factions.$.description"] = body.description;
+    if (body.costumeDescription !== undefined) set["factions.$.costumeDescription"] = body.costumeDescription;
+    if (body.costumePrompt !== undefined) set["factions.$.costumePrompt"] = body.costumePrompt;
+    const project = await Project.findOneAndUpdate(
+      { _id: id, "factions.name": decodeURIComponent(name) },
+      { $set: set },
+      { new: true }
+    ).select("factions").lean() as any;
+    if (!project) return reply.code(404).send({ error: "Not found" });
+    return project.factions ?? [];
+  });
+
   app.delete("/projects/:id/episodes/:epId", async (req, reply) => {
     const { epId } = req.params as { id: string; epId: string };
     const scenes = await Scene.find({ episodeId: epId }).select("_id").lean();

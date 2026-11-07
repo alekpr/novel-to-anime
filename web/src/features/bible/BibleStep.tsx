@@ -4,8 +4,8 @@ import { AiLoadingBanner } from '../../components/AiLoadingBanner'
 import { BadgeSource } from '../../components/BadgeSource'
 import { JobProgressPanel } from '../../components/JobProgressPanel'
 import { useJobStream } from '../../hooks/useJobStream'
-import { charactersApi, episodesApi, locationsApi } from '../../lib/api'
-import type { Character, Location } from '../../lib/api'
+import { charactersApi, episodesApi, factionsApi, locationsApi } from '../../lib/api'
+import type { Character, Faction, Location } from '../../lib/api'
 
 interface Props {
   projectId: string
@@ -39,14 +39,17 @@ function EditableField({ label, value, onSave }: { label: string; value: string;
   )
 }
 
-function CharCard({ char, onApprove, onUpdate, onDelete, currentEp }: {
+function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, currentEp }: {
   char: Character
   onApprove: () => void
   onUpdate: (data: Partial<Character>) => void
   onDelete: () => void
+  onRegenerate: () => void
+  onReset: () => void
   currentEp: number
 }) {
   const [open, setOpen] = useState(char.status !== 'approved')
+  const [regenLoading, setRegenLoading] = useState(false)
   const inferred = char.appearance?.inferredFields ?? []
   const outfits = char.outfits ?? []
   // outfit ที่เพิ่งเข้ามาใน EP นี้ = usedInScenes ว่าง (ยังไม่ได้ assign) หรือดูจาก episodes
@@ -92,6 +95,27 @@ function CharCard({ char, onApprove, onUpdate, onDelete, currentEp }: {
                 </div>
               ))
             }
+          </div>
+
+          {/* Regenerate buttons */}
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={async () => { setRegenLoading(true); await onReset(); setRegenLoading(false) }}
+              disabled={regenLoading}
+              className="text-xs px-2 py-1 border rounded hover:bg-gray-100 disabled:opacity-40"
+              title="สร้าง appearanceBlock ใหม่จากข้อมูล appearance ที่มีอยู่ (ยึดนิยายต้นฉบับ)"
+            >
+              🔄 Reset จากต้นฉบับ
+            </button>
+            <button
+              onClick={async () => { setRegenLoading(true); await onRegenerate(); setRegenLoading(false) }}
+              disabled={regenLoading}
+              className="text-xs px-2 py-1 border rounded hover:bg-gray-100 disabled:opacity-40"
+              title="ให้ AI สร้าง appearance ใหม่ให้แตกต่างจากตัวละครอื่น"
+            >
+              ✨ Regenerate (AI)
+            </button>
+            {regenLoading && <span className="text-xs text-gray-400 self-center">กำลังสร้าง…</span>}
           </div>
 
           {/* Outfits */}
@@ -154,9 +178,36 @@ function LocCard({ loc, onApprove, onUpdate }: {
   )
 }
 
+function FactionCard({ faction, onUpdate }: { faction: Faction; onUpdate: (data: Partial<Faction>) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex justify-between items-center px-4 py-3 bg-white text-left">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold">{faction.name}</span>
+          <span className="text-xs text-gray-400">{faction.description}</span>
+        </div>
+        <span className="text-gray-300 text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 pt-2 border-t bg-gray-50 space-y-3">
+          <EditableField label="คำอธิบาย" value={faction.costumeDescription} onSave={v => onUpdate({ costumeDescription: v })} />
+          <div>
+            <div className="text-xs text-gray-500 mb-1">Costume Prompt (English)</div>
+            <div className="flex gap-1 items-start group">
+              <span className="text-xs font-mono bg-white border rounded p-2 flex-1 text-gray-700 whitespace-pre-wrap">{faction.costumePrompt || <span className="text-gray-300">—</span>}</span>
+            </div>
+            <EditableField label="" value={faction.costumePrompt} onSave={v => onUpdate({ costumePrompt: v })} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function BibleStep({ projectId, episodeId, onDone }: Props) {
   const qc = useQueryClient()
-  const [tab, setTab] = useState<'chars' | 'locs'>('chars')
+  const [tab, setTab] = useState<'chars' | 'locs' | 'factions'>('chars')
   const [jobId, setJobId] = useState<string | null>(null)
   const jobIdRef = useRef<string | null>(null)
   const streamJob = useJobStream(jobId)
@@ -175,6 +226,10 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
     queryKey: ['locations', projectId],
     queryFn: () => locationsApi.list(projectId),
   })
+  const { data: factions = [] } = useQuery({
+    queryKey: ['factions', projectId],
+    queryFn: () => factionsApi.list(projectId),
+  })
 
   // กรองเฉพาะที่ปรากฏใน episode นี้
   const chars = currentEp ? allChars.filter(c => c.episodes?.includes(currentEp)) : allChars
@@ -189,6 +244,7 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
     if (streamJob?.status === 'succeeded' && jobIdRef.current) {
       qc.invalidateQueries({ queryKey: ['characters', projectId] })
       qc.invalidateQueries({ queryKey: ['locations', projectId] })
+      qc.invalidateQueries({ queryKey: ['factions', projectId] })
       jobIdRef.current = null
       setJobId(null)
     }
@@ -213,6 +269,18 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
   const deleteChar = useMutation({
     mutationFn: (id: string) => charactersApi.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['characters', projectId] }),
+  })
+  const regenerateChar = useMutation({
+    mutationFn: (id: string) => charactersApi.regenerateAppearance(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['characters', projectId] }),
+  })
+  const resetChar = useMutation({
+    mutationFn: (id: string) => charactersApi.resetAppearance(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['characters', projectId] }),
+  })
+  const updateFaction = useMutation({
+    mutationFn: ({ name, data }: { name: string; data: Partial<Faction> }) => factionsApi.update(projectId, name, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['factions', projectId] }),
   })
 
   const needsReviewChars = chars.filter(c => (c as any).needsReview)
@@ -258,11 +326,11 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
       {(chars.length > 0 || locs.length > 0) && (
         <>
           <div className="flex gap-2 border-b">
-            {(['chars', 'locs'] as const).map(t => (
+            {(['chars', 'locs', 'factions'] as const).map(t => (
               <button key={t} onClick={() => setTab(t)}
                 className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors
                   ${tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                {t === 'chars' ? `ตัวละคร (${chars.length})` : `สถานที่ (${locs.length})`}
+                {t === 'chars' ? `ตัวละคร (${chars.length})` : t === 'locs' ? `สถานที่ (${locs.length})` : `กลุ่ม/ชุด (${factions.length})`}
               </button>
             ))}
           </div>
@@ -276,6 +344,8 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
                   onApprove={() => approveChar.mutate(c._id)}
                   onDelete={() => deleteChar.mutate(c._id)}
                   onUpdate={(data) => updateChar.mutate({ id: c._id, data })}
+                  onRegenerate={() => regenerateChar.mutateAsync(c._id)}
+                  onReset={() => resetChar.mutateAsync(c._id)}
                 />
               ))
             )}
@@ -287,6 +357,15 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
                   onUpdate={(data) => updateLoc.mutate({ id: l._id, data })}
                 />
               ))
+            )}
+            {tab === 'factions' && (
+              factions.length === 0
+                ? <div className="text-gray-400 text-sm">ยังไม่มีข้อมูลกลุ่ม — ให้ AI วิเคราะห์ก่อน</div>
+                : factions.map(f => (
+                  <FactionCard key={f.name} faction={f}
+                    onUpdate={(data) => updateFaction.mutate({ name: f.name, data })}
+                  />
+                ))
             )}
           </div>
 

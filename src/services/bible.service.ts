@@ -6,6 +6,7 @@ import { Character } from "../models/Character.js";
 import { Location } from "../models/Location.js";
 import { Episode } from "../models/Episode.js";
 import { Job } from "../models/Job.js";
+import { Project } from "../models/Project.js";
 import { decideMerge, mergeAliases, type BibleEntity } from "../utils/mergeLogic.js";
 
 export async function runBibleExtraction(
@@ -26,10 +27,15 @@ export async function runBibleExtraction(
     description?: string; lighting?: string; mood?: string;
     locationBlock?: string; masterPrompt?: string; keyElements?: string[];
   }>;
+  const project = await Project.findById(projectId).lean() as unknown as {
+    factions?: Array<{ name: string; description: string; costumeDescription: string; costumePrompt: string }>
+  } | null;
+  const existingFactions = project?.factions ?? [];
 
   const bibleContext = buildBibleContext(
     existingChars.map((c) => ({ name: c.name, aliases: c.aliases, role: (c as unknown as { role?: string }).role ?? "support" })),
-    existingLocs.map((l) => ({ name: l.name, aliases: l.aliases }))
+    existingLocs.map((l) => ({ name: l.name, aliases: l.aliases })),
+    existingFactions.map((f) => ({ name: f.name, costumePrompt: f.costumePrompt }))
   );
   const rawNovelText = episode.paragraphs.map((p) => `[${p.idx}] ${p.text}`).join("\n\n");
   const novelText = rawNovelText;
@@ -50,6 +56,7 @@ export async function runBibleExtraction(
 
   await mergeCharacters(projectId, episode.number, data.characters, existingChars);
   await mergeLocations(projectId, episode.number, data.locations, existingLocs);
+  await mergeFactions(projectId, data.factions ?? [], existingFactions);
 
   if (data.episodeSummary) {
     await Episode.findByIdAndUpdate(episodeId, {
@@ -242,16 +249,43 @@ async function mergeLocations(
   }
 }
 
+// ---- Merge Factions ----
+
+async function mergeFactions(
+  projectId: string,
+  incoming: Array<{ name: string; description: string; costumeDescription: string; costumePrompt: string }>,
+  existing: Array<{ name: string; costumePrompt: string }>
+): Promise<void> {
+  if (incoming.length === 0) return;
+  const existingNames = new Set(existing.map((f) => f.name.toLowerCase().trim()));
+  const toAdd = incoming.filter((f) => !existingNames.has(f.name.toLowerCase().trim()));
+  const toUpdate = incoming.filter((f) => existingNames.has(f.name.toLowerCase().trim()));
+
+  if (toAdd.length > 0) {
+    await Project.findByIdAndUpdate(projectId, {
+      $push: { factions: { $each: toAdd } },
+    });
+  }
+  for (const f of toUpdate) {
+    await Project.findOneAndUpdate(
+      { _id: projectId, "factions.name": f.name },
+      { $set: { "factions.$.costumeDescription": f.costumeDescription, "factions.$.costumePrompt": f.costumePrompt } }
+    );
+  }
+}
+
 // ---- Helpers ----
 
 function buildBibleContext(
   chars: Array<{ name: string; aliases: string[]; role: string }>,
-  locs: Array<{ name: string; aliases: string[] }>
+  locs: Array<{ name: string; aliases: string[] }>,
+  factions: Array<{ name: string; costumePrompt: string }>
 ): string {
-  if (chars.length === 0 && locs.length === 0) return "(no existing Bible)";
+  if (chars.length === 0 && locs.length === 0 && factions.length === 0) return "(no existing Bible)";
   const charList = chars.map((c) => `- ${c.name} (${c.role})`).join("\n");
   const locList = locs.map((l) => `- ${l.name}`).join("\n");
-  return `Existing characters:\n${charList || "(none)"}\n\nExisting locations:\n${locList || "(none)"}`;
+  const facList = factions.map((f) => `- ${f.name}: ${f.costumePrompt}`).join("\n");
+  return `Existing characters:\n${charList || "(none)"}\n\nExisting locations:\n${locList || "(none)"}\n\nExisting factions/costumes:\n${facList || "(none)"}`;
 }
 
 function buildS1Prompt(epNumber: number, title: string, bibleContext: string, novelText: string): string {
@@ -264,14 +298,17 @@ ${novelText}
 
 ## Instructions
 - Extract ALL characters and locations that appear
+- Extract ALL factions/groups that share a costume (sect ranks, unit types, etc.)
 - For appearance fields (hair/skin/eyes/build/distinguishing/defaultOutfit): NEVER output "unknown" — always infer a reasonable value and add the field to inferredFields
-- All prompt fields must be in English (appearanceBlock, characterSheetPrompt, outfitPrompt, outfitSheetPrompt, locationBlock, masterPrompt)
+- If a character belongs to a faction listed in the existing Bible, their outfit MUST reference that faction's costumePrompt as the base
+- All prompt fields must be in English (appearanceBlock, characterSheetPrompt, outfitPrompt, outfitSheetPrompt, locationBlock, masterPrompt, costumePrompt)
 - Every character must have at least 1 outfit with outfitPrompt and outfitSheetPrompt filled
 
 ## Return JSON:
 \`\`\`json
 {
-  "characters": [ { "name": "ชื่อตัวละคร", "aliases": [], "role": "main|support|extra", "age": "", "personality": "", "appearance": { "hair": "(infer if unknown)", "skin": "(infer if unknown)", "eyes": "(infer if unknown)", "build": "(infer if unknown)", "distinguishing": "", "defaultOutfit": "(infer if unknown)", "inferredFields": ["hair","skin"] }, "outfits": [{ "name": "ชื่อชุด", "description": "คำอธิบายชุดภาษาไทย", "outfitPrompt": "base appearance wearing outfit details in English", "outfitSheetPrompt": "anime character sheet, multiple views, front/side/back, base appearance wearing outfit, white background, reference sheet style, full body" }], "voice": { "gender": "", "ageRange": "", "pitch": "", "timbre": "", "pace": "", "accent": "", "defaultEmotion": "", "speechHabits": [], "sampleLines": [] }, "appearanceBlock": "base appearance in English without outfit", "characterSheetPrompt": "full character sheet prompt in English", "voicePrompt": "", "needsReview": false, "needsReviewReason": "" } ],
+  "factions": [ { "name": "ชื่อกลุ่ม", "description": "", "costumeDescription": "บรรยายชุดภาษาไทย", "costumePrompt": "wearing [color] [material] [garment] with [details] in English" } ],
+  "characters": [ { "name": "ชื่อตัวละคร", "aliases": [], "role": "main|support|extra", "age": "", "personality": "", "appearance": { "hair": "(infer if unknown)", "skin": "(infer if unknown)", "eyes": "(infer if unknown)", "build": "(infer if unknown)", "distinguishing": "", "defaultOutfit": "(infer if unknown)", "inferredFields": ["hair","skin"] }, "outfits": [{ "name": "ชื่อชุด", "description": "คำอธิบายชุดภาษาไทย", "outfitPrompt": "[base appearance] wearing [faction costume or outfit details] in English", "outfitSheetPrompt": "anime character sheet, multiple views, front/side/back, [base appearance] wearing [outfit], white background, reference sheet style, full body" }], "voice": { "gender": "", "ageRange": "", "pitch": "", "timbre": "", "pace": "", "accent": "", "defaultEmotion": "", "speechHabits": [], "sampleLines": [] }, "appearanceBlock": "base appearance in English without outfit", "characterSheetPrompt": "full character sheet prompt in English", "voicePrompt": "", "needsReview": false, "needsReviewReason": "" } ],
   "locations": [ { "name": "ชื่อสถานที่", "aliases": [], "type": "interior|exterior", "description": "", "timeOfDay": "", "lighting": "", "weather": "", "materials": "", "keyElements": [], "mood": "", "locationBlock": "location description in English", "masterPrompt": "image generation prompt in English", "relatedCharacterNames": [], "needsReview": false } ],
   "episodeSummary": "2-3 sentence summary"
 }

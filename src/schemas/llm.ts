@@ -67,6 +67,12 @@ export const LLMLocation = z.object({
 export const BibleExtractionResult = z.object({
   characters: z.array(LLMCharacter),
   locations: z.array(LLMLocation),
+  factions: z.array(z.object({
+    name: z.string(),
+    description: z.string().default(""),
+    costumeDescription: z.string().default(""),
+    costumePrompt: z.string().default(""),
+  })).default([]),
   episodeSummary: z.string().default(""),
 });
 

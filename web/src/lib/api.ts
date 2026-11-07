@@ -32,6 +32,13 @@ export interface Character {
   voice?: { gender?: string; pitch?: string; voicePrompt?: string }
 }
 
+export interface Faction {
+  name: string
+  description: string
+  costumeDescription: string
+  costumePrompt: string
+}
+
 export interface Location {
   _id: string
   projectId: string
@@ -109,6 +116,13 @@ export const charactersApi = {
   generateOutfitPrompts: (id: string) => api.post<{ updated: number; character: Character }>(`/characters/${id}/generate-outfit-prompts`).then(r => r.data),
   regenerateAppearance: (id: string) => api.post<Character>(`/characters/${id}/regenerate-appearance`).then(r => r.data),
   resetAppearance: (id: string) => api.post<Character>(`/characters/${id}/reset-appearance`).then(r => r.data),
+}
+
+// Factions
+export const factionsApi = {
+  list: (projectId: string) => api.get<Faction[]>(`/projects/${projectId}/factions`).then(r => r.data),
+  update: (projectId: string, name: string, data: Partial<Faction>) =>
+    api.patch<Faction[]>(`/projects/${projectId}/factions/${encodeURIComponent(name)}`, data).then(r => r.data),
 }
 
 // Locations
