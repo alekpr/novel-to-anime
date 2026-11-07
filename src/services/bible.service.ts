@@ -262,17 +262,19 @@ ${bibleContext}
 ## Novel text EP ${epNumber}: ${title}
 ${novelText}
 
+## Instructions
+- Extract ALL characters and locations that appear
+- For appearance fields (hair/skin/eyes/build/distinguishing/defaultOutfit): NEVER output "unknown" — always infer a reasonable value and add the field to inferredFields
+- All prompt fields must be in English (appearanceBlock, characterSheetPrompt, outfitPrompt, outfitSheetPrompt, locationBlock, masterPrompt)
+- Every character must have at least 1 outfit with outfitPrompt and outfitSheetPrompt filled
+
 ## Return JSON:
 \`\`\`json
 {
-  "characters": [ { "name": "character name", "aliases": [], "role": "main", "age": "", "personality": "", "appearance": { "hair": "", "skin": "", "eyes": "", "build": "", "distinguishing": "", "defaultOutfit": "", "inferredFields": [] }, "outfits": [{ "name": "outfit name", "description": "outfit description in Thai", "outfitPrompt": "character appearance wearing outfit details in English", "outfitSheetPrompt": "anime character sheet, multiple views, front/side/back, character appearance wearing outfit, white background, reference sheet style, full body" }], "voice": { "gender": "", "ageRange": "", "pitch": "", "timbre": "", "pace": "", "accent": "", "defaultEmotion": "", "speechHabits": [], "sampleLines": [] }, "appearanceBlock": "appearance without outfit in English", "characterSheetPrompt": "full character sheet prompt in English", "voicePrompt": "", "needsReview": false, "needsReviewReason": "" } ],
-  "locations": [ { "name": "location name", "aliases": [], "type": "interior", "description": "", "timeOfDay": "", "lighting": "", "weather": "", "materials": "", "keyElements": [], "mood": "", "locationBlock": "", "masterPrompt": "", "relatedCharacterNames": [], "needsReview": false } ],
-  "episodeSummary": "2-3 sentence summary of this episode"
+  "characters": [ { "name": "ชื่อตัวละคร", "aliases": [], "role": "main|support|extra", "age": "", "personality": "", "appearance": { "hair": "(infer if unknown)", "skin": "(infer if unknown)", "eyes": "(infer if unknown)", "build": "(infer if unknown)", "distinguishing": "", "defaultOutfit": "(infer if unknown)", "inferredFields": ["hair","skin"] }, "outfits": [{ "name": "ชื่อชุด", "description": "คำอธิบายชุดภาษาไทย", "outfitPrompt": "base appearance wearing outfit details in English", "outfitSheetPrompt": "anime character sheet, multiple views, front/side/back, base appearance wearing outfit, white background, reference sheet style, full body" }], "voice": { "gender": "", "ageRange": "", "pitch": "", "timbre": "", "pace": "", "accent": "", "defaultEmotion": "", "speechHabits": [], "sampleLines": [] }, "appearanceBlock": "base appearance in English without outfit", "characterSheetPrompt": "full character sheet prompt in English", "voicePrompt": "", "needsReview": false, "needsReviewReason": "" } ],
+  "locations": [ { "name": "ชื่อสถานที่", "aliases": [], "type": "interior|exterior", "description": "", "timeOfDay": "", "lighting": "", "weather": "", "materials": "", "keyElements": [], "mood": "", "locationBlock": "location description in English", "masterPrompt": "image generation prompt in English", "relatedCharacterNames": [], "needsReview": false } ],
+  "episodeSummary": "2-3 sentence summary"
 }
 \`\`\`
-
-**Enum rules:**
-- role: "main" or "support" or "extra"
-- type (location): "interior" or "exterior"
 `.trim();
 }

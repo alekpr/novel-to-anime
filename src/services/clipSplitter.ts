@@ -39,7 +39,9 @@ export function splitIntoClips(shots: ShotForSplit[], pol: ClipPolicy): ShotForS
   }
 
   if (!isFinite(best[n])) {
-    throw new Error("มี shot ยาวเกิน maxClipSec — ให้ S4a ออกแบบใหม่");
+    // มี shot เดี่ยวยาวกว่า maxClipSec — clamp แล้ว retry
+    const clamped = shots.map(sh => ({ ...sh, durationSec: Math.min(sh.durationSec, pol.maxClipSec) }));
+    return splitIntoClips(clamped, pol);
   }
 
   const clips: ShotForSplit[][] = [];

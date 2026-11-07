@@ -64,10 +64,12 @@ export async function buildApp() {
     app.register(import("@fastify/static").then(m => m.default), {
       root: webDist,
       prefix: "/",
-      decorateReply: false,
     });
-    app.setNotFoundHandler((_req, reply) => {
-      reply.sendFile("index.html", webDist);
+    app.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith("/api/")) {
+        return reply.code(404).send({ error: "Not found" });
+      }
+      reply.sendFile("index.html");
     });
   }
 
