@@ -39,7 +39,7 @@ function EditableField({ label, value, onSave }: { label: string; value: string;
   )
 }
 
-function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, onFixUnknown, currentEp }: {
+function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, onFixUnknown, currentEp, showAll }: {
   char: Character
   onApprove: () => void
   onUpdate: (data: Partial<Character>) => void
@@ -48,6 +48,7 @@ function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, 
   onReset: () => void
   onFixUnknown: () => void
   currentEp: number
+  showAll?: boolean
 }) {
   const [open, setOpen] = useState(char.status !== 'approved')
   const [regenLoading, setRegenLoading] = useState(false)
@@ -68,6 +69,11 @@ function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, 
             {char.role}
           </span>
           {char.needsReview && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">⚠ ต้องตรวจ</span>}
+          {showAll && char.episodes && char.episodes.length > 0 && (
+            <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
+              EP {char.episodes.slice().sort((a,b) => a-b).join(', ')}
+            </span>
+          )}
           {outfits.length > 0 && <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">{outfits.length} ชุด</span>}
           <span className="text-gray-300 text-xs ml-1">{open ? '▲' : '▼'}</span>
         </button>
@@ -259,6 +265,7 @@ function AddFactionModal({ onClose, onSave }: { onClose: () => void; onSave: (f:
 export function BibleStep({ projectId, episodeId, onDone }: Props) {
   const qc = useQueryClient()
   const [tab, setTab] = useState<'chars' | 'locs' | 'factions'>('chars')
+  const [showAll, setShowAll] = useState(false)
   const [showAddFaction, setShowAddFaction] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const jobIdRef = useRef<string | null>(null)
@@ -283,9 +290,8 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
     queryFn: () => factionsApi.list(projectId),
   })
 
-  // กรองเฉพาะที่ปรากฏใน episode นี้
-  const chars = currentEp ? allChars.filter(c => c.episodes?.includes(currentEp)) : allChars
-  const locs = currentEp ? allLocs.filter(l => l.episodes?.includes(currentEp)) : allLocs
+  const chars = showAll || !currentEp ? allChars : allChars.filter(c => c.episodes?.includes(currentEp))
+  const locs = showAll || !currentEp ? allLocs : allLocs.filter(l => l.episodes?.includes(currentEp))
 
   const runS1 = useMutation({
     mutationFn: () => episodesApi.runStage(episodeId, 'S1'),
@@ -354,7 +360,17 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-4">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold">ขั้น 2 – Story Bible</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-semibold">ขั้น 2 – Story Bible</h2>
+          <button
+            onClick={() => setShowAll(v => !v)}
+            className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+              showAll ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            {showAll ? '🌐 ทั้งโปรเจกต์' : `📌 EP${currentEp} เท่านั้น`}
+          </button>
+        </div>
         <button
           onClick={() => runS1.mutate()}
           disabled={runS1.isPending || !!jobId}
@@ -383,7 +399,7 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
 
       {chars.length === 0 && locs.length === 0 && !jobId && (
         <div className="text-gray-500 text-sm bg-gray-50 rounded p-4">
-          กดปุ่ม "ให้ AI วิเคราะห์" เพื่อสกัดตัวละครและสถานที่จากนิยาย
+          {showAll ? 'ยังไม่มีข้อมูลใน Bible — กดปุ่ม "ให้ AI วิเคราะห์" เพื่อเริ่มต้น' : `ยังไม่มีตัวละครหรือสถานที่ใน EP${currentEp} — กดปุ่ม "ให้ AI วิเคราะห์" หรือสลับเป็น "ทั้งโปรเจกต์"`}
         </div>
       )}
 
@@ -394,7 +410,7 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
               <button key={t} onClick={() => setTab(t)}
                 className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors
                   ${tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                {t === 'chars' ? `ตัวละคร (${chars.length})` : t === 'locs' ? `สถานที่ (${locs.length})` : `กลุ่ม/ชุด (${factions.length})`}
+                {t === 'chars' ? `ตัวละคร (${chars.length}${showAll ? '' : `/${allChars.length}`})` : t === 'locs' ? `สถานที่ (${locs.length}${showAll ? '' : `/${allLocs.length}`})` : `กลุ่ม/ชุด (${factions.length})`}
               </button>
             ))}
           </div>
@@ -405,6 +421,7 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
               : chars.map(c => (
                 <CharCard key={c._id} char={c}
                   currentEp={currentEp}
+                  showAll={showAll}
                   onApprove={() => approveChar.mutate(c._id)}
                   onDelete={() => deleteChar.mutate(c._id)}
                   onUpdate={(data) => updateChar.mutate({ id: c._id, data })}
