@@ -54,7 +54,8 @@ If a character belongs to a faction, their outfit should reference the faction's
 ## Output Rules
 
 - JSON only, no other text
-- role must be: "main" / "support" / "extra"
+- role must be: "main" / "support" / "extra" / "monster"
+- Use role "monster" for any non-human creature, beast, demon, spirit, or enemy entity that appears in the story
 - type (location) must be: "interior" / "exterior"
 - All prompt fields (appearanceBlock, characterSheetPrompt, outfitPrompt, outfitSheetPrompt, locationBlock, masterPrompt) must be in English
 - description, personality fields can be in Thai

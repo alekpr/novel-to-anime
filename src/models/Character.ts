@@ -31,7 +31,7 @@ const characterSchema = new Schema({
   projectId: { type: Types.ObjectId, ref: "Project", required: true },
   name: { type: String, required: true },
   aliases: [String],
-  role: { type: String, enum: ["main", "support", "extra"], default: "support" },
+  role: { type: String, enum: ["main", "support", "extra", "monster"], default: "support" },
   age: String,
   personality: String,
   relationships: [relationshipSchema],

@@ -297,7 +297,7 @@ ${bibleContext}
 ${novelText}
 
 ## Instructions
-- Extract ALL characters and locations that appear
+- Extract ALL characters, locations, and factions — including monsters, creatures, beasts, demons, or spirits (use role: "monster")
 - Extract ALL factions/groups that share a costume (sect ranks, unit types, etc.)
 - For appearance fields (hair/skin/eyes/build/distinguishing/defaultOutfit): NEVER output "unknown" — always infer a reasonable value and add the field to inferredFields
 - If a character belongs to a faction listed in the existing Bible, their outfit MUST reference that faction's costumePrompt as the base
@@ -308,7 +308,7 @@ ${novelText}
 \`\`\`json
 {
   "factions": [ { "name": "ชื่อกลุ่ม", "description": "", "costumeDescription": "บรรยายชุดภาษาไทย", "costumePrompt": "wearing [color] [material] [garment] with [details] in English" } ],
-  "characters": [ { "name": "ชื่อตัวละคร", "aliases": [], "role": "main|support|extra", "age": "", "personality": "", "appearance": { "hair": "(infer if unknown)", "skin": "(infer if unknown)", "eyes": "(infer if unknown)", "build": "(infer if unknown)", "distinguishing": "", "defaultOutfit": "(infer if unknown)", "inferredFields": ["hair","skin"] }, "outfits": [{ "name": "ชื่อชุด", "description": "คำอธิบายชุดภาษาไทย", "outfitPrompt": "[base appearance] wearing [faction costume or outfit details] in English", "outfitSheetPrompt": "anime character sheet, multiple views, front/side/back, [base appearance] wearing [outfit], white background, reference sheet style, full body" }], "voice": { "gender": "", "ageRange": "", "pitch": "", "timbre": "", "pace": "", "accent": "", "defaultEmotion": "", "speechHabits": [], "sampleLines": [] }, "appearanceBlock": "base appearance in English without outfit", "characterSheetPrompt": "full character sheet prompt in English", "voicePrompt": "", "needsReview": false, "needsReviewReason": "" } ],
+  "characters": [ { "name": "ชื่อตัวละคร", "aliases": [], "role": "main|support|extra|monster", "age": "", "personality": "", "appearance": { "hair": "(infer if unknown)", "skin": "(infer if unknown)", "eyes": "(infer if unknown)", "build": "(infer if unknown)", "distinguishing": "", "defaultOutfit": "(infer if unknown)", "inferredFields": ["hair","skin"] }, "outfits": [{ "name": "ชื่อชุด", "description": "คำอธิบายชุดภาษาไทย", "outfitPrompt": "[base appearance] wearing [faction costume or outfit details] in English", "outfitSheetPrompt": "anime character sheet, multiple views, front/side/back, [base appearance] wearing [outfit], white background, reference sheet style, full body" }], "voice": { "gender": "", "ageRange": "", "pitch": "", "timbre": "", "pace": "", "accent": "", "defaultEmotion": "", "speechHabits": [], "sampleLines": [] }, "appearanceBlock": "base appearance in English without outfit", "characterSheetPrompt": "full character sheet prompt in English", "voicePrompt": "", "needsReview": false, "needsReviewReason": "" } ],
   "locations": [ { "name": "ชื่อสถานที่", "aliases": [], "type": "interior|exterior", "description": "", "timeOfDay": "", "lighting": "", "weather": "", "materials": "", "keyElements": [], "mood": "", "locationBlock": "location description in English", "masterPrompt": "image generation prompt in English", "relatedCharacterNames": [], "needsReview": false } ],
   "episodeSummary": "2-3 sentence summary"
 }

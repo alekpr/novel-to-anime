@@ -25,7 +25,7 @@ export const config = {
         : (process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta"),
       model: isDeepSeek
         ? (process.env.DEEPSEEK_MODEL ?? "deepseek-chat")
-        : (process.env.GEMINI_MODEL ?? "gemini-2.5-flash"),
+        : (process.env.GEMINI_MODEL ?? "gemini-3.8-flash"),
       fallback: {
         apiKey: process.env.LLM_FALLBACK_API_KEY ?? "",
         baseUrl: process.env.LLM_FALLBACK_BASE_URL ?? "",

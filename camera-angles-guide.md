@@ -133,7 +133,7 @@
 | Medium Long Shot / Cowboy Shot | MLS | ศีรษะถึงเข่า (Cowboy Shot เป็นแบบเฉพาะที่ตัดช่วงกลางต้นขา เห็นซองปืนที่เอว) |
 | Long Shot / Wide Shot / Full Shot | LS | เต็มตัวหัวจดเท้า พร้อมสภาพแวดล้อม |
 | Extreme Long Shot / Establishing Shot | ELS | ภาพรวมสถานที่ ตัวละครเล็กมาก |
-
+ๆ
 ### 3.1 Extreme Close-Up (ECU)
 
 - **อารมณ์:** เข้มข้น กดดัน ตึงเครียด เน้นรายละเอียดที่ห้ามมองข้าม

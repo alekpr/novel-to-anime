@@ -48,7 +48,7 @@ export const LLMVoice = z.object({
 export const LLMCharacter = z.object({
   name: z.string(),
   aliases: z.array(z.string()).default([]),
-  role: z.string().transform((v) => (["main", "support", "extra"].includes(v) ? v : "support")).pipe(z.enum(["main", "support", "extra"])).catch("support"),
+  role: z.string().transform((v) => (["main", "support", "extra", "monster"].includes(v) ? v : "support")).pipe(z.enum(["main", "support", "extra", "monster"])).catch("support"),
   age: z.string().default("").transform(v => /^unknown$/i.test(v) ? "" : v),
   personality: z.string().default(""),
   appearance: LLMAppearance.default({}),

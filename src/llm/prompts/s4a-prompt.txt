@@ -30,6 +30,8 @@ Specify: **movement + angle + lens feel** as a single concise phrase.
 - 1 shot = 1 primary angle + 1 primary movement — split into new shot if angle changes
 - Shots with dialogue MUST use MLS or closer (ECU/CU/MCU/MS/MLS) — lip sync is invisible in LS/ELS
 - Match camera to emotion: tense → Handheld/tight; peaceful → slow Dolly/wide; reveal → Crane or Tilt up
+- **Prefer tight shots (CU/MCU/MS) for character shots** — AI video renders character detail far better at close range; LS/ELS only for environment-only establishing shots
+- **Max 2 named characters per shot** — if scene has 3+ characters, cut between pairs using OTS/reaction/insert; remaining characters are "background figures"
 - Example: `"slow dolly-in, low-angle, MCU"` / `"static, OTS eye-level, MS"` / `"handheld tracking, dutch angle, CU"`
 
 ---
@@ -55,6 +57,7 @@ Write 2–3 sentences per shot covering:
 
 - DO NOT include dialogue text in description
 - Maintain visual consistency: same surface textures, weather, lighting across shots in the same scene
+- If shot has 3+ characters, focus description on 1–2 foreground characters using `{{char:ID}}` tokens; describe the rest as "background figures" without identity
 - Background extras: describe as "background figures" — no identity retention needed
 
 ---
