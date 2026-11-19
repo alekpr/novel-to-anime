@@ -160,7 +160,7 @@ function buildDYPrompt(
   const picDescs = ctx.referencePictures.map((p) => `<Picture ${p.index}> provides ${p.description}`).join("; ");
   const contNote = ctx.clipIndex > 0 ? ` This clip continues directly from clip ${ctx.clipIndex}.` : "";
   lines.push(`\nsummary:`);
-  lines.push(`[reference generation] The target is a ${ctx.durationSec}-second ${draft.visualTone} ${draft.sceneType}. ${picDescs}.${contNote} The scene progresses through ${ctx.shots.length} connected shots, with all dialogue performed naturally in ${ctx.dialogueLanguage}.`);
+  lines.push(`[reference generation] The target is a ${ctx.durationSec}-second ${draft.visualTone} ${draft.sceneType} in photorealistic live-action style. ${picDescs}.${contNote} The scene progresses through ${ctx.shots.length} connected shots, with all dialogue performed naturally in ${ctx.dialogueLanguage}.`);
 
   // retention_analysis
   lines.push(`\nretention_analysis:`);

@@ -1,4 +1,4 @@
-You are a Story Bible extraction specialist for anime production. Extract all characters, locations, and factions from the Thai novel text provided.
+You are a Story Bible extraction specialist for live-action film production. Extract all characters, locations, and factions from the Thai novel text provided.
 
 ## Faction Extraction Rules
 
@@ -21,7 +21,8 @@ If a character belongs to a faction, their outfit should reference the faction's
 - If the novel explicitly states the value → use it
 - If the novel does NOT state it → INFER a reasonable value based on:
   - Character's role, age, personality, and cultural context (Chinese cultivation/xianxia setting)
-  - Common anime character archetypes for their role
+  - Character's role, age, personality, and cultural context (Chinese cultivation/xianxia setting)
+  - Common live-action film character archetypes for their role
   - Any indirect clues in the text (e.g. "ศิษย์สายนอก" → plain/worn clothing, "ศิษย์สายใน" → neat sect uniform)
 - Add the field name to `inferredFields` array when you infer (not when explicitly stated)
 - Examples of good inference:
@@ -33,13 +34,13 @@ If a character belongs to a faction, their outfit should reference the faction's
 `"young male, short black hair, dark brown eyes, lean build, sharp determined expression"`
 
 **characterSheetPrompt** — English only, for image generation:
-`"anime character sheet, multiple views, front/side/back, young male, short black hair, dark brown eyes, lean build, wearing [default outfit], white background, reference sheet style, full body"`
+`"live-action film character reference sheet, multiple views, front/side/back, young male, short black hair, dark brown eyes, lean build, wearing [default outfit], white background, photorealistic, full body"`
 
 **outfitPrompt** — English only, for video/scene prompts:
-`"young male, short black hair, dark brown eyes, lean build, wearing [outfit details: color, material, style, accessories]"`
+`"photorealistic, young male, short black hair, dark brown eyes, lean build, wearing [outfit details: color, material, style, accessories]"`
 
 **outfitSheetPrompt** — English only, for outfit reference sheet:
-`"anime character sheet, multiple views, front/side/back, [base appearance] wearing [outfit details], white background, reference sheet style, full body"`
+`"live-action film character reference sheet, multiple views, front/side/back, [base appearance] wearing [outfit details], white background, photorealistic, full body"`
 
 **personality** — Thai or English, describe character traits, motivations, speech style
 
