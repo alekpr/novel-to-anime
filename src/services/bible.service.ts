@@ -17,7 +17,7 @@ export async function runBibleExtraction(
   const episode = await Episode.findById(episodeId).lean();
   if (!episode) throw new Error(`Episode ${episodeId} not found`);
 
-  await Job.findByIdAndUpdate(jobId, { status: "running", progress: 0.1 });
+  await Job.findByIdAndUpdate(jobId, { status: "running", progress: 0.1, statusMessage: "โหลดข้อมูลตัวละครและสถานที่ที่มีอยู่แล้วอยู่…" });
 
   const existingChars = await Character.find({ projectId }).lean() as unknown as Array<BibleEntity & {
     personality?: string; age?: string; appearance?: Record<string, unknown>;
@@ -42,7 +42,7 @@ export async function runBibleExtraction(
 
   const userPrompt = buildS1Prompt(episode.number, episode.title ?? "", bibleContext, novelText);
 
-  await Job.findByIdAndUpdate(jobId, { progress: 0.3 });
+  await Job.findByIdAndUpdate(jobId, { progress: 0.3, statusMessage: "AI กำลังอ่านนิยายและสกัดตัวละคร / สถานที่ / กลุ่ม…" });
 
   const { data, tokens } = await callStructured({
     system: loadPrompt("s1-bible.txt"),
@@ -52,7 +52,7 @@ export async function runBibleExtraction(
     maxTokens: 32000,
   });
 
-  await Job.findByIdAndUpdate(jobId, { progress: 0.6 });
+  await Job.findByIdAndUpdate(jobId, { progress: 0.6, statusMessage: "บันทึกข้อมูลลงฐานข้อมูล…" });
 
   await mergeCharacters(projectId, episode.number, data.characters, existingChars);
   await mergeLocations(projectId, episode.number, data.locations, existingLocs);

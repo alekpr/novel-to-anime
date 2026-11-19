@@ -10,6 +10,7 @@ const jobSchema = new Schema({
     default: "queued",
   },
   progress: { type: Number, default: 0 },
+  statusMessage: { type: String, default: null },
   error: { type: String, default: null },
   tokens: { in: { type: Number, default: 0 }, out: { type: Number, default: 0 } },
   finishedAt: { type: Date, default: null },

@@ -86,6 +86,7 @@ export interface Job {
   stage: string
   status: 'queued' | 'running' | 'succeeded' | 'failed'
   progress: number
+  statusMessage?: string
   error?: string
   tokens?: { in: number; out: number }
   createdAt: string
