@@ -56,7 +56,7 @@ function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, 
   const hasUnknown = char.appearance && Object.entries(char.appearance)
     .some(([k, v]) => k !== 'inferredFields' && String(v).toLowerCase() === 'unknown')
   // outfit ที่เพิ่งเข้ามาใน EP นี้ = usedInScenes ว่าง (ยังไม่ได้ assign) หรือดูจาก episodes
-  const newOutfitThreshold = outfits.length > 1 ? outfits.slice(-Math.max(1, outfits.length - 1)) : []
+
 
   return (
     <div className={`border rounded-lg overflow-hidden ${char.status === 'approved' ? 'border-green-300' : char.needsReview ? 'border-orange-400' : ''}`}>

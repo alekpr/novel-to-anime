@@ -63,7 +63,6 @@ function ClipCard({ clip, index }: { clip: Clip; index: number }) {
 }
 
 function SceneClipsPanel({ scene, defaultOpen }: { scene: Scene; defaultOpen?: boolean }) {
-  const qc = useQueryClient()
   const [open, setOpen] = useState(defaultOpen ?? false)
 
   const { data: sceneDetail, refetch } = useQuery({
