@@ -25,7 +25,7 @@ export async function runSceneBreakdown(
   const episode = await Episode.findById(episodeId).lean();
   if (!episode) throw new Error(`Episode ${episodeId} not found`);
 
-  await Job.findByIdAndUpdate(jobId, { status: "running", progress: 0.1 });
+  await Job.findByIdAndUpdate(jobId, { status: "running", progress: 0.1, statusMessage: "โหลดข้อมูล Bible…" });
 
   const characters = await Character.find({ projectId, status: "approved" }).lean();
   const locations = await Location.find({ projectId, status: "approved" }).lean();
@@ -91,7 +91,7 @@ ${novelText}
 \`\`\`
 `.trim();
 
-  await Job.findByIdAndUpdate(jobId, { progress: 0.3 });
+  await Job.findByIdAndUpdate(jobId, { progress: 0.3, statusMessage: "AI กำลังวิเคราะห์และแบ่งฉาก…" });
 
   const { data, tokens } = await callStructured({
     system: loadPrompt("s2-scenes.txt"),
@@ -101,7 +101,7 @@ ${novelText}
     maxTokens: 32000,
   });
 
-  await Job.findByIdAndUpdate(jobId, { progress: 0.6, "tokens.in": tokens.in, "tokens.out": tokens.out });
+  await Job.findByIdAndUpdate(jobId, { progress: 0.6, statusMessage: `บันทึก ${data.scenes.length} ฉากลงฐานข้อมูล…`, "tokens.in": tokens.in, "tokens.out": tokens.out });
 
   // enforce minimum EP duration — scale up estDurationSec ถ้ารวมไม่ถึง target
   const totalEst = data.scenes.reduce((s, sc) => s + sc.estDurationSec, 0);

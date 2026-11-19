@@ -175,7 +175,7 @@ export async function runShotList(
   const scenes = await Scene.find({ episodeId }).sort({ order: 1 }).lean();
   if (scenes.length === 0) throw new Error("No scenes found — run S2 first");
 
-  await Job.findByIdAndUpdate(jobId, { status: "running", progress: 0.05 });
+  await Job.findByIdAndUpdate(jobId, { status: "running", progress: 0.05, statusMessage: "เตรียมข้อมูล…" });
 
   const characters = await Character.find({ projectId, status: "approved" }).lean();
 
@@ -183,18 +183,28 @@ export async function runShotList(
   let totalTokensIn = 0;
   let totalTokensOut = 0;
 
+  let completedScenes = 0;
+
   await Promise.all(
     scenes.map((scene) =>
       queues.llm.add(async () => {
+        await Job.findByIdAndUpdate(jobId, {
+          statusMessage: `AI กำลังสร้าง shots: ${(scene as any).sceneCode}…`,
+        });
         const result = await buildShotsForScene(
           scene as unknown as SceneLean,
           episode as typeof episode & { summary?: string },
           characters,
           prevSummary
         );
+        completedScenes++;
         totalTokensIn += result.tokensIn;
         totalTokensOut += result.tokensOut;
         prevSummary = result.sceneSummary;
+        await Job.findByIdAndUpdate(jobId, {
+          progress: 0.05 + (completedScenes / scenes.length) * 0.9,
+          statusMessage: `สร้าง shots เสร็จแล้ว ${completedScenes}/${scenes.length} ฉาก`,
+        });
       })
     )
   );
