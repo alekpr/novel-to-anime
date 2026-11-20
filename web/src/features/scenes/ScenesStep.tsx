@@ -156,6 +156,7 @@ export function ScenesStep({ episodeId, onSelectScene, onDone }: Props) {
   const jobIdRef = useRef<string | null>(null)
   const [selectedScene, setSelectedScene] = useState<Scene | null>(null)
   const [editingScene, setEditingScene] = useState<Scene | null>(null)
+  const [targetDuration, setTargetDuration] = useState<string>('')  // '' = auto
   const streamJob = useJobStream(jobId)
 
   const { data: scenes = [], isLoading } = useQuery({
@@ -164,7 +165,10 @@ export function ScenesStep({ episodeId, onSelectScene, onDone }: Props) {
   })
 
   const runS2 = useMutation({
-    mutationFn: () => episodesApi.runStage(episodeId, 'S2'),
+    mutationFn: () => {
+      const sec = targetDuration ? Number(targetDuration) * 60 : null
+      return episodesApi.runStage(episodeId, 'S2', { targetDurationSec: sec })
+    },
     onSuccess: (job) => { jobIdRef.current = job._id; setJobId(job._id) },
   })
 
@@ -186,16 +190,30 @@ export function ScenesStep({ episodeId, onSelectScene, onDone }: Props) {
           <div>
             <h2 className="text-xl font-semibold">ขั้น 3 – Scenes</h2>
             {scenes.length > 0 && (
-              <p className="text-sm text-gray-500">{scenes.length} ฉาก · รวม {totalDur}s</p>
+              <p className="text-sm text-gray-500">{scenes.length} ฉาก · รวม {totalDur}s ({Math.round(totalDur / 60)} นาที)</p>
             )}
           </div>
-          <button
-            onClick={() => runS2.mutate()}
-            disabled={runS2.isPending || !!jobId}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
-          >
-            {jobId ? '⏳ กำลังแบ่งฉาก…' : '🤖 แบ่งฉากอัตโนมัติ'}
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 border rounded px-2 py-1.5 bg-white">
+              <span className="text-xs text-gray-500 shrink-0">เวลารวม:</span>
+              <input
+                type="number"
+                min={1}
+                placeholder="auto"
+                value={targetDuration}
+                onChange={e => setTargetDuration(e.target.value)}
+                className="w-16 text-sm text-center outline-none"
+              />
+              <span className="text-xs text-gray-400">นาที</span>
+            </div>
+            <button
+              onClick={() => runS2.mutate()}
+              disabled={runS2.isPending || !!jobId}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
+            >
+              {jobId ? '⏳ กำลังแบ่งฉาก…' : '🤖 แบ่งฉากอัตโนมัติ'}
+            </button>
+          </div>
         </div>
 
           <AiLoadingBanner job={streamJob} label="AI กำลังแบ่งฉาก" />

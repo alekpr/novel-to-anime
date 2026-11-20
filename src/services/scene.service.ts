@@ -30,7 +30,7 @@ export async function runSceneBreakdown(
   const characters = await Character.find({ projectId, status: "approved" }).lean();
   const locations = await Location.find({ projectId, status: "approved" }).lean();
   const project = await Project.findById(projectId).lean();
-  const targetEpDurationSec = (project as any)?.targetEpDurationSec ?? 480;
+  const targetEpDurationSec = (episode as any).targetDurationSec ?? (project as any)?.targetEpDurationSec ?? 480;
 
   const useGemini = config.llm.provider === "gemini";
 

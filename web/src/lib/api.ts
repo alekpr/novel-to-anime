@@ -105,7 +105,8 @@ export const episodesApi = {
   create: (projectId: string, data: { number: number; title: string; text: string }) =>
     api.post<Episode>(`/projects/${projectId}/episodes`, data).then(r => r.data),
   get: (id: string) => api.get<Episode>(`/episodes/${id}`).then(r => r.data),
-  runStage: (id: string, stage: string) => api.post<Job>(`/episodes/${id}/run/${stage}`).then(r => r.data),
+  runStage: (id: string, stage: string, opts?: { targetDurationSec?: number | null }) =>
+    api.post<Job>(`/episodes/${id}/run/${stage}`, opts ?? {}).then(r => r.data),
 }
 
 // Characters

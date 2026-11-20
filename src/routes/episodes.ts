@@ -17,6 +17,12 @@ export async function episodeRoutes(app: FastifyInstance) {
     const episode = await Episode.findById(id).lean();
     if (!episode) return reply.code(404).send({ error: "Episode not found" });
 
+    // รับ targetDurationSec จาก body (optional) — บันทึกลง episode ก่อน run
+    const body = req.body as { targetDurationSec?: number | null };
+    if (body?.targetDurationSec !== undefined) {
+      await Episode.findByIdAndUpdate(id, { targetDurationSec: body.targetDurationSec ?? null });
+    }
+
     const jobId = await dispatchJob(
       episode.projectId.toString(),
       id,

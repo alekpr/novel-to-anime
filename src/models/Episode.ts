@@ -13,6 +13,7 @@ const episodeSchema = new Schema({
   },
   paragraphs: [paragraphSchema],
   summary: { type: String, default: "" },
+  targetDurationSec: { type: Number, default: null }, // null = ใช้ค่าจาก project
   bibleVersion: { type: Number, default: 0 },
 }, { timestamps: true });
 
