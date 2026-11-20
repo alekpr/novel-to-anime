@@ -74,6 +74,12 @@ async function callGeminiNative(opts: {
   const candidateBlock = candidate?.finishReason;
   if (candidateBlock === "SAFETY" || candidateBlock === "PROHIBITED_CONTENT") {
     console.error("[Gemini] BLOCKED candidate:", candidateBlock, JSON.stringify((candidate as any)?.safetyRatings));
+    // ถ้า candidate มี partial text ให้ลองใช้ก่อน
+    const partialText = candidate?.content?.parts?.map(p => p.text ?? "").join("") ?? "";
+    if (partialText.trim().length > 10) {
+      console.warn("[Gemini] using partial text despite block:", partialText.slice(0, 100));
+      return { text: partialText, finishReason: "stop", tokensIn: json.usageMetadata?.promptTokenCount ?? 0, tokensOut: json.usageMetadata?.candidatesTokenCount ?? 0 };
+    }
     return { text: "", finishReason: "stop", tokensIn: json.usageMetadata?.promptTokenCount ?? 0, tokensOut: 0, blocked: candidateBlock };
   }
   console.log("[Gemini] OK finishReason:", candidate?.finishReason, "tokensIn:", json.usageMetadata?.promptTokenCount, "tokensOut:", json.usageMetadata?.candidatesTokenCount);
@@ -127,13 +133,32 @@ export async function callStructured<T extends z.ZodTypeAny>(
       });
 
       if (r.blocked) {
-        throw new Error(`Gemini blocked prompt [${r.blocked}] in user prompt`);
+        // PROHIBITED_CONTENT: ลอง fallback model ก่อน throw
+        const fallbackModel = "gemini-3.5-flash";
+        if (model !== fallbackModel) {
+          console.warn(`[Gemini] ${r.blocked} — retrying with fallback model ${fallbackModel}`);
+          const r2 = await callGeminiNative({
+            model: fallbackModel, apiKey: config.llm.apiKey,
+            system: opts.system, user: userContent,
+            maxTokens: currentMaxTokens, temperature: opts.temperature ?? 0.2,
+          });
+          if (!r2.blocked) {
+            finishReason = r2.finishReason;
+            text = r2.text;
+            totalIn += r2.tokensIn;
+            totalOut += r2.tokensOut;
+          } else {
+            throw new Error(`Gemini blocked prompt [${r2.blocked}] even with fallback model`);
+          }
+        } else {
+          throw new Error(`Gemini blocked prompt [${r.blocked}] in user prompt`);
+        }
+      } else {
+        finishReason = r.finishReason;
+        text = r.text;
+        totalIn += r.tokensIn;
+        totalOut += r.tokensOut;
       }
-
-      finishReason = r.finishReason;
-      text = r.text;
-      totalIn += r.tokensIn;
-      totalOut += r.tokensOut;
     } else {
       const res = await client!.chat.completions.create({
         model,
