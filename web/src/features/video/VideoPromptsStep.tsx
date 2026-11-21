@@ -88,13 +88,18 @@ function OptimizedPanel({ scene, maxClipSec, imageRefFormat }: { scene: Scene; m
     queryFn: () => optimizeApi.getScene(scene._id),
     enabled: open,
     staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
   })
 
   const optimize = useMutation({
     mutationFn: () => optimizeApi.optimizeScene(scene._id, maxClipSec ?? undefined, imageRefFormat),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['optimized', scene._id] }),
+    onSuccess: (data) => {
+      qc.setQueryData(['optimized', scene._id], data)
+    },
   })
 
+  // prefer fresh mutation result, fall back to cached GET
   const result: OptimizeResult | null = optimize.data ?? cached ?? null
   const hasClips = (scene as any).clips?.length > 0 || (scene as any).shotCount > 0
 
