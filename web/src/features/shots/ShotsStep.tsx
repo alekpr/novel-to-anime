@@ -143,10 +143,9 @@ export function ShotsStep({ episodeId, initialSceneId }: Props) {
 
   useEffect(() => {
     if (streamJob?.status === 'succeeded' && jobIdRef.current) {
-      // invalidate shots ทุก scene ไม่ใช่แค่ scene ที่เลือก
-      qc.invalidateQueries({ queryKey: ['shots'] })
       jobIdRef.current = null
-      setJobId(null)
+      qc.invalidateQueries({ queryKey: ['shots'] })
+      setTimeout(() => setJobId(null), 1500)
     }
   }, [streamJob?.status, qc])
 

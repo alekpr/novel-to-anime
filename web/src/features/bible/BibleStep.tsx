@@ -300,11 +300,11 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
 
   useEffect(() => {
     if (streamJob?.status === 'succeeded' && jobIdRef.current) {
+      jobIdRef.current = null
       qc.invalidateQueries({ queryKey: ['characters', projectId] })
       qc.invalidateQueries({ queryKey: ['locations', projectId] })
       qc.invalidateQueries({ queryKey: ['factions', projectId] })
-      jobIdRef.current = null
-      setJobId(null)
+      setTimeout(() => setJobId(null), 1500)
     }
   }, [streamJob?.status, projectId, qc])
 
