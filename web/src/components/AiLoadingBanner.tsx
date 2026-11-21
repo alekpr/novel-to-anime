@@ -42,26 +42,24 @@ export function AiLoadingBanner({ job, label = 'กำลังประมว�
       </div>
 
       {/* step dots */}
-      {!isIndeterminate && (
-        <div className="flex items-center gap-2 pt-0.5">
-          {[
-            { threshold: 10, label: 'โหลดข้อมูล' },
-            { threshold: 30, label: 'AI วิเคราะห์' },
-            { threshold: 60, label: 'บันทึกข้อมูล' },
-            { threshold: 100, label: 'เสร็จสิ้น' },
-          ].map((step, i) => {
-            const done = pct >= step.threshold
-            const active = pct < step.threshold && (i === 0 || pct >= [10, 30, 60, 100][i - 1])
-            return (
-              <div key={i} className="flex items-center gap-1.5">
-                {i > 0 && <div className={`h-px w-4 ${done ? 'bg-blue-400' : 'bg-blue-200'}`} />}
-                <div className={`w-2 h-2 rounded-full shrink-0 ${done ? 'bg-blue-500' : active ? 'bg-blue-400 animate-pulse' : 'bg-blue-200'}`} />
-                <span className={`text-xs ${done ? 'text-blue-600' : 'text-blue-300'}`}>{step.label}</span>
-              </div>
-            )
-          })}
-        </div>
-      )}
+      <div className="flex items-center gap-2 pt-0.5">
+        {[
+          { threshold: 10, label: 'โหลดข้อมูล' },
+          { threshold: 30, label: 'AI วิเคราะห์' },
+          { threshold: 60, label: 'บันทึกข้อมูล' },
+          { threshold: 100, label: 'เสร็จสิ้น' },
+        ].map((step, i) => {
+          const done = pct >= step.threshold
+          const active = pct < step.threshold && (i === 0 || pct >= [10, 30, 60, 100][i - 1])
+          return (
+            <div key={i} className="flex items-center gap-1.5">
+              {i > 0 && <div className={`h-px w-4 ${done ? 'bg-blue-400' : 'bg-blue-200'}`} />}
+              <div className={`w-2 h-2 rounded-full shrink-0 ${done ? 'bg-blue-500' : active ? 'bg-blue-400 animate-pulse' : 'bg-blue-200'}`} />              
+              <span className={`text-xs ${done ? 'text-blue-600' : 'text-blue-300'}`}>{step.label}</span>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
