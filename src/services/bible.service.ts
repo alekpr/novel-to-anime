@@ -325,7 +325,8 @@ function buildBibleContext(
   props: Array<{ name: string }> = []
 ): string {
   if (chars.length === 0 && locs.length === 0 && factions.length === 0 && props.length === 0) return "(no existing Bible)";
-  const charList = chars.map((c) => `- ${c.name} (${c.role})`).join("\n");
+  // sanitize: strip role labels that may trigger content filters; LLM infers role from novel text
+  const charList = chars.map((c) => `- ${c.name}`).join("\n");
   const locList = locs.map((l) => `- ${l.name}`).join("\n");
   const facList = factions.map((f) => `- ${f.name}: ${f.costumePrompt}`).join("\n");
   const propList = props.map((p) => `- ${p.name}`).join("\n");
