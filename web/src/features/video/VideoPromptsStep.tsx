@@ -17,7 +17,25 @@ function CopyButton({ text, label = 'copy' }: { text: string; label?: string }) 
   )
 }
 
-function Section({ title, content, mono = false, badge }: { title: string; content: string; mono?: boolean; badge?: string }) {
+function DownloadButton({ text, filename }: { text: string; filename: string }) {
+  return (
+    <button
+      onClick={() => {
+        const blob = new Blob([text], { type: 'text/markdown' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url; a.download = filename; a.click()
+        URL.revokeObjectURL(url)
+      }}
+      className="text-xs px-2 py-1 border rounded hover:bg-gray-50 shrink-0"
+      title={filename}
+    >
+      ↓ .md
+    </button>
+  )
+}
+
+function Section({ title, content, mono = false, badge, filename }: { title: string; content: string; mono?: boolean; badge?: string; filename?: string }) {
   const [open, setOpen] = useState(false)
   if (!content) return null
   return (
@@ -29,6 +47,7 @@ function Section({ title, content, mono = false, badge }: { title: string; conte
           {badge && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{badge}</span>}
         </div>
         <div className="flex items-center gap-2">
+          {filename && <DownloadButton text={content} filename={filename} />}
           <CopyButton text={content} />
           <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
         </div>
@@ -44,23 +63,25 @@ function Section({ title, content, mono = false, badge }: { title: string; conte
   )
 }
 
-function ResultSections({ result }: { result: OptimizeResult }) {
+function ResultSections({ result, sceneCode }: { result: OptimizeResult; sceneCode: string }) {
   const parseFailed = !result.analysisReport && result.optimizedClips.every(c => !c)
+  // derive clip code prefix: EP03-S01 → EP03-S01-C
+  const clipPrefix = sceneCode  // e.g. EP03-S01
   if (parseFailed) {
     return (
       <div className="space-y-2">
         <div className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded p-2">
           parse sections ไม่สำเร็จ — แสดง raw output ทั้งหมด
         </div>
-        <Section title="Raw LLM Output" content={result.raw} mono />
+        <Section title="Raw LLM Output" content={result.raw} mono filename={`${sceneCode}-RAW.md`} />
       </div>
     )
   }
   return (
     <div className="space-y-2">
-      <Section title="Prompt Analysis Report" content={result.analysisReport} />
-      <Section title="Subject & Picture Mapping" content={result.mappingTable} />
-      <Section title="Dialogue Timing Calibration" content={result.timingReport} />
+      <Section title="Prompt Analysis Report" content={result.analysisReport} filename={`${sceneCode}-ANALYSIS.md`} />
+      <Section title="Subject & Picture Mapping" content={result.mappingTable} filename={`${sceneCode}-MAPPING.md`} />
+      <Section title="Dialogue Timing Calibration" content={result.timingReport} filename={`${sceneCode}-TIMING.md`} />
       {result.optimizedClips.map((clip, i) => (
         <Section
           key={i}
@@ -68,13 +89,14 @@ function ResultSections({ result }: { result: OptimizeResult }) {
           content={clip}
           mono
           badge={`Clip ${i + 1}`}
+          filename={`${clipPrefix}-C${String(i + 1).padStart(2, '0')}.md`}
         />
       ))}
       {result.elevenLabsScript && (
-        <Section title="ElevenLabs Dialogue Script" content={result.elevenLabsScript} mono />
+        <Section title="ElevenLabs Dialogue Script" content={result.elevenLabsScript} mono filename={`${sceneCode}-ELEVENLABS.md`} />
       )}
-      <Section title="BGM Spec (แยกต่างหาก)" content={result.bgmSpec} />
-      <Section title="Validation Report" content={result.validationReport} />
+      <Section title="BGM Spec (แยกต่างหาก)" content={result.bgmSpec} filename={`${sceneCode}-BGM.md`} />
+      <Section title="Validation Report" content={result.validationReport} filename={`${sceneCode}-VALIDATION.md`} />
     </div>
   )
 }
@@ -140,7 +162,7 @@ function OptimizedPanel({ scene, maxClipSec, imageRefFormat }: { scene: Scene; m
             )}
           </div>
 
-          {result && <ResultSections result={result} />}
+          {result && <ResultSections result={result} sceneCode={(scene as any).sceneCode ?? scene._id} />}
         </div>
       )}
     </div>
