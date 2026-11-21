@@ -63,10 +63,11 @@ function parseSections(raw: string): Omit<OptimizeResult, "raw"> {
   // --- Markdown path ---
   const text = raw.replace(/\r\n/g, "\n");
 
+  // extract content under a ## heading, stopping only at the next ## heading (not ###)
   const extract = (patterns: string[]): string => {
     for (const heading of patterns) {
       const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const re = new RegExp(`(?:^|\n)#{1,3}\\s+${escaped}\\s*\n([\\s\\S]*?)(?=\n#{1,3}\\s|$)`, "i");
+      const re = new RegExp(`(?:^|\n)#{1,2}\\s+${escaped}\\s*\n([\\s\\S]*?)(?=\n#{1,2}\\s|$)`, "i");
       const m = text.match(re);
       if (m) return m[1].trim();
     }
@@ -76,9 +77,12 @@ function parseSections(raw: string): Omit<OptimizeResult, "raw"> {
   const optimizedSection = extract([
     "Optimized MiniMax H3 Prompt", "Optimized Prompt", "Optimized H3 Prompt",
   ]);
+
+  // split into per-clip blocks: split on ### Clip N or --- separator
   const clipBlocks = optimizedSection
-    .split(/(?=\n?#{2,4}\s+Clip\s+\d|\n?---\s*\n)/i)
-    .map(s => s.trim()).filter(s => s.length > 20);
+    .split(/(?=\n?###\s+Clip\s+\d|\n?---\s*\n)/i)
+    .map(s => s.replace(/^---\s*\n/, "").trim())
+    .filter(s => s.length > 20);
 
   return {
     analysisReport: extract(["Prompt Analysis Report", "Analysis Report"]),
@@ -162,7 +166,7 @@ Optimize the above prompt(s) according to the validation rules. Output all 7 req
     system: loadPrompt("s7-optimize.txt"),
     user: userPrompt,
     temperature: 0.2,
-    maxTokens: 16000,
+    maxTokens: 32000,
   });
 
   const sections = parseSections(raw);
