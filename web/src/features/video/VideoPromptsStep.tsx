@@ -44,6 +44,41 @@ function Section({ title, content, mono = false, badge }: { title: string; conte
   )
 }
 
+function ResultSections({ result }: { result: OptimizeResult }) {
+  const parseFailed = !result.analysisReport && result.optimizedClips.every(c => !c)
+  if (parseFailed) {
+    return (
+      <div className="space-y-2">
+        <div className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded p-2">
+          parse sections ไม่สำเร็จ — แสดง raw output ทั้งหมด
+        </div>
+        <Section title="Raw LLM Output" content={result.raw} mono />
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      <Section title="Prompt Analysis Report" content={result.analysisReport} />
+      <Section title="Subject & Picture Mapping" content={result.mappingTable} />
+      <Section title="Dialogue Timing Calibration" content={result.timingReport} />
+      {result.optimizedClips.map((clip, i) => (
+        <Section
+          key={i}
+          title={`Optimized H3 Prompt — Clip ${i + 1}/${result.optimizedClips.length}`}
+          content={clip}
+          mono
+          badge={`Clip ${i + 1}`}
+        />
+      ))}
+      {result.elevenLabsScript && (
+        <Section title="ElevenLabs Dialogue Script" content={result.elevenLabsScript} mono />
+      )}
+      <Section title="BGM Spec (แยกต่างหาก)" content={result.bgmSpec} />
+      <Section title="Validation Report" content={result.validationReport} />
+    </div>
+  )
+}
+
 function OptimizedPanel({ scene, maxClipSec }: { scene: Scene; maxClipSec: number | null }) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
@@ -91,7 +126,7 @@ function OptimizedPanel({ scene, maxClipSec }: { scene: Scene; maxClipSec: numbe
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                 </svg>
               )}
-              {optimize.isPending ? 'กำลัง optimize…' : result ? '↻ Optimize ใหม่' : '✨ Optimize H3 Prompt'}
+              {optimize.isPending ? 'กำลัง optimize…' : result ? '↻ Optimize ใหม่' : 'Optimize H3 Prompt'}
             </button>
             {optimize.isError && (
               <span className="text-xs text-red-600">
@@ -100,36 +135,7 @@ function OptimizedPanel({ scene, maxClipSec }: { scene: Scene; maxClipSec: numbe
             )}
           </div>
 
-          {result && (
-            <div className="space-y-2">
-              {/* Analysis */}
-              <Section title="📋 Prompt Analysis Report" content={result.analysisReport} />
-              <Section title="🗺 Subject & Picture Mapping" content={result.mappingTable} />
-              <Section title="⏱ Dialogue Timing Calibration" content={result.timingReport} />
-
-              {/* Optimized clips — each separately */}
-              {result.optimizedClips.map((clip, i) => (
-                <Section
-                  key={i}
-                  title={`🎬 Optimized H3 Prompt — Clip ${i + 1}/${result.optimizedClips.length}`}
-                  content={clip}
-                  mono
-                  badge={`Clip ${i + 1}`}
-                />
-              ))}
-
-              {/* ElevenLabs */}
-              {result.elevenLabsScript && (
-                <Section title="🎙 ElevenLabs Dialogue Script" content={result.elevenLabsScript} mono />
-              )}
-
-              {/* BGM */}
-              <Section title="🎵 BGM Spec (แยกต่างหาก)" content={result.bgmSpec} />
-
-              {/* Validation */}
-              <Section title="✅ Validation Report" content={result.validationReport} />
-            </div>
-          )}
+          {result && <ResultSections result={result} />}
         </div>
       )}
     </div>
@@ -192,7 +198,7 @@ export function VideoPromptsStep({ episodeId }: Props) {
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
               </svg>
             )}
-            {optimizeAll.isPending ? 'กำลัง optimize…' : '✨ Optimize ทั้งหมด'}
+            {optimizeAll.isPending ? 'กำลัง optimize…' : 'Optimize ทั้งหมด'}
           </button>
         </div>
       </div>

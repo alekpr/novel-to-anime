@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { callText } from "../llm/client.js";
 import { loadPrompt } from "../llm/prompts.js";
 import { Scene } from "../models/Scene.js";
@@ -19,25 +18,42 @@ export interface OptimizeResult {
 
 // parse LLM markdown output into sections
 function parseSections(raw: string): Omit<OptimizeResult, "raw"> {
-  const extract = (heading: string): string => {
-    const re = new RegExp(`##\\s+${heading}[\\s\\S]*?(?=\\n##\\s|$)`, "i");
-    const m = raw.match(re);
-    return m ? m[0].replace(/^##[^\n]+\n/, "").trim() : "";
+  // normalize line endings
+  const text = raw.replace(/\r\n/g, "\n");
+
+  // extract content between ## heading and next ## heading (any level)
+  const extract = (patterns: string[]): string => {
+    for (const heading of patterns) {
+      // escape special regex chars in heading
+      const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`(?:^|\n)#{1,3}\\s+${escaped}\\s*\n([\\s\\S]*?)(?=\n#{1,3}\\s|$)`, "i");
+      const m = text.match(re);
+      if (m) return m[1].trim();
+    }
+    return "";
   };
 
-  // optimizedClips — split by "### Clip" or "#### Clip" boundaries
-  const optimizedSection = extract("Optimized MiniMax H3 Prompt");
-  const clipBlocks = optimizedSection.split(/(?=###?\s+Clip\s+\d)/i).filter(s => s.trim());
-  const optimizedClips = clipBlocks.length > 0 ? clipBlocks.map(s => s.trim()) : [optimizedSection];
+  const optimizedSection = extract([
+    "Optimized MiniMax H3 Prompt",
+    "Optimized Prompt",
+    "Optimized H3 Prompt",
+  ]);
+
+  // split clips by ### Clip N or #### Clip N or just numbered blocks
+  const clipBlocks = optimizedSection
+    .split(/(?=\n?#{2,4}\s+Clip\s+\d|\n?---\s*\n)/i)
+    .map(s => s.trim())
+    .filter(s => s.length > 20);
+  const optimizedClips = clipBlocks.length > 0 ? clipBlocks : [optimizedSection];
 
   return {
-    analysisReport: extract("Prompt Analysis Report"),
-    mappingTable: extract("Subject & Picture Mapping Table"),
-    timingReport: extract("Dialogue Timing Calibration Report"),
+    analysisReport: extract(["Prompt Analysis Report", "Analysis Report"]),
+    mappingTable: extract(["Subject & Picture Mapping Table", "Subject and Picture Mapping", "Subject & Picture Mapping", "Mapping Table"]),
+    timingReport: extract(["Dialogue Timing Calibration Report", "Dialogue Timing Calibration", "Timing Calibration Report", "Timing Report"]),
     optimizedClips,
-    elevenLabsScript: extract("ElevenLabs Dialogue Script"),
-    bgmSpec: extract("BGM Spec"),
-    validationReport: extract("Validation Report"),
+    elevenLabsScript: extract(["ElevenLabs Dialogue Script", "ElevenLabs Script", "ElevenLabs Dialogue"]),
+    bgmSpec: extract(["BGM Spec", "BGM Specification", "Background Music Spec"]),
+    validationReport: extract(["Validation Report", "Validation"]),
   };
 }
 
@@ -109,6 +125,13 @@ Optimize the above prompt(s) according to the validation rules. Output all 7 req
   });
 
   const sections = parseSections(raw);
+
+  // fallback: ถ้า parse ไม่ได้เลย ให้ใส่ raw ทั้งหมดใน analysisReport
+  const hasAnyContent = sections.analysisReport || sections.optimizedClips.some(c => c.length > 0);
+  if (!hasAnyContent) {
+    sections.analysisReport = raw;
+    sections.optimizedClips = [raw];
+  }
 
   // บันทึกลง scene
   await Scene.findByIdAndUpdate(sceneId, {
