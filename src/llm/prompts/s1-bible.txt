@@ -46,6 +46,15 @@ If a character belongs to a faction, their outfit should reference the faction's
 
 **needsReview** — set true only if you genuinely cannot determine if this is a new character or an existing one from the Bible
 
+## Existing Characters — Outfit Update Rules
+
+If a character already exists in the Bible (listed under "Existing characters"):
+- **Still include them in the output** if they appear in this episode wearing a **new outfit not previously recorded**
+- Only include the new outfit(s) in their `outfits` array — do not repeat outfits already known
+- Set `needsReview: false` for these updates
+- Example: นก already exists but this episode shows her in a nurse uniform → include นก with outfit `{ name: "ชุดพยาบาล", ... }`
+- If the character appears but wears no new outfit, **omit them** from the output entirely
+
 ## Props / Objects Extraction Rules
 
 Extract **significant props** — objects that:

@@ -22,7 +22,7 @@ export async function runBibleExtraction(
 
   const existingChars = await Character.find({ projectId }).lean() as unknown as Array<BibleEntity & {
     personality?: string; age?: string; appearance?: Record<string, unknown>;
-    outfits?: unknown[]; appearanceBlock?: string; characterSheetPrompt?: string; voice?: Record<string, unknown>;
+    outfits?: Array<{ name: string }>; appearanceBlock?: string; characterSheetPrompt?: string; voice?: Record<string, unknown>;
   }>;
   const existingLocs = await Location.find({ projectId }).lean() as unknown as Array<BibleEntity & {
     description?: string; lighting?: string; mood?: string;
@@ -36,7 +36,11 @@ export async function runBibleExtraction(
   const existingProps = await PropObject.find({ projectId }, { name: 1, aliases: 1 }).lean() as unknown as Array<{ name: string; aliases: string[] }>;
 
   const bibleContext = buildBibleContext(
-    existingChars.map((c) => ({ name: c.name, aliases: c.aliases, role: (c as unknown as { role?: string }).role ?? "support" })),
+    existingChars.map((c) => ({
+      name: c.name,
+      aliases: c.aliases,
+      outfitNames: (c.outfits ?? []).map(o => o.name),
+    })),
     existingLocs.map((l) => ({ name: l.name, aliases: l.aliases })),
     existingFactions.map((f) => ({ name: f.name, costumePrompt: f.costumePrompt })),
     existingProps.map((p) => ({ name: p.name }))
@@ -319,14 +323,16 @@ async function mergeFactions(
 // ---- Helpers ----
 
 function buildBibleContext(
-  chars: Array<{ name: string; aliases: string[]; role: string }>,
+  chars: Array<{ name: string; aliases: string[]; outfitNames: string[] }>,
   locs: Array<{ name: string; aliases: string[] }>,
   factions: Array<{ name: string; costumePrompt: string }>,
   props: Array<{ name: string }> = []
 ): string {
   if (chars.length === 0 && locs.length === 0 && factions.length === 0 && props.length === 0) return "(no existing Bible)";
-  // sanitize: strip role labels that may trigger content filters; LLM infers role from novel text
-  const charList = chars.map((c) => `- ${c.name}`).join("\n");
+  const charList = chars.map((c) => {
+    const outfits = c.outfitNames.length > 0 ? ` [known outfits: ${c.outfitNames.join(", ")}]` : "";
+    return `- ${c.name}${outfits}`;
+  }).join("\n");
   const locList = locs.map((l) => `- ${l.name}`).join("\n");
   const facList = factions.map((f) => `- ${f.name}: ${f.costumePrompt}`).join("\n");
   const propList = props.map((p) => `- ${p.name}`).join("\n");
@@ -342,7 +348,8 @@ ${bibleContext}
 ${novelText}
 
 ## Instructions
-- Extract ALL characters, locations, factions, and props — including monsters, creatures, beasts, demons, or spirits (use role: "monster")
+- Extract ALL new characters, locations, factions, and props from this episode
+- For existing characters (listed above): include them ONLY if they appear in a NEW outfit not listed in [known outfits]. Include only the new outfit(s) in their outfits array
 - Extract ALL factions/groups that share a costume (sect ranks, unit types, etc.)
 - Extract ALL significant props: weapons, artifacts, key items that appear in multiple scenes or are plot-critical — skip generic background items
 - For appearance fields (hair/skin/eyes/build/distinguishing/defaultOutfit): NEVER output "unknown" — always infer a reasonable value and add the field to inferredFields
