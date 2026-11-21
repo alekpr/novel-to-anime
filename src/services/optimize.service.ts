@@ -18,13 +18,53 @@ export interface OptimizeResult {
 
 // parse LLM markdown output into sections
 function parseSections(raw: string): Omit<OptimizeResult, "raw"> {
-  // normalize line endings
+  // --- JSON path: Gemini sometimes returns a JSON object instead of markdown ---
+  const trimmed = raw.trim();
+  const jsonStart = trimmed.indexOf("{");
+  if (jsonStart !== -1) {
+    try {
+      const jsonStr = trimmed.slice(jsonStart, trimmed.lastIndexOf("}") + 1);
+      const obj = JSON.parse(jsonStr);
+
+      // map known JSON key variants to our fields
+      const pick = (...keys: string[]): string => {
+        for (const k of keys) {
+          const val = obj[k] ?? obj[k.toLowerCase()] ?? obj[k.replace(/ /g, "_").toLowerCase()];
+          if (val && typeof val === "string") {
+            // strip leading ## heading line if present
+            return val.replace(/^##[^\n]+\n/, "").trim();
+          }
+        }
+        return "";
+      };
+
+      const optimizedRaw = pick(
+        "optimized_minimax_h3_prompt", "optimized_prompt", "optimized_h3_prompt",
+        "Optimized MiniMax H3 Prompt"
+      );
+      const clipBlocks = optimizedRaw
+        .split(/(?=\n?#{2,4}\s+Clip\s+\d)/i)
+        .map(s => s.trim()).filter(s => s.length > 20);
+
+      return {
+        analysisReport: pick("prompt_analysis_report", "analysis_report", "Prompt Analysis Report"),
+        mappingTable: pick("subject_and_picture_mapping_table", "subject_picture_mapping", "mapping_table", "Subject & Picture Mapping Table"),
+        timingReport: pick("dialogue_timing_calibration_report", "timing_report", "Dialogue Timing Calibration Report"),
+        optimizedClips: clipBlocks.length > 0 ? clipBlocks : [optimizedRaw],
+        elevenLabsScript: pick("elevenlabs_dialogue_script", "elevenlabs_script", "ElevenLabs Dialogue Script"),
+        bgmSpec: pick("bgm_spec", "bgm_specification", "BGM Spec"),
+        validationReport: pick("validation_report", "Validation Report"),
+      };
+    } catch {
+      // JSON parse failed — fall through to markdown parser
+    }
+  }
+
+  // --- Markdown path ---
   const text = raw.replace(/\r\n/g, "\n");
 
-  // extract content between ## heading and next ## heading (any level)
   const extract = (patterns: string[]): string => {
     for (const heading of patterns) {
-      // escape special regex chars in heading
       const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const re = new RegExp(`(?:^|\n)#{1,3}\\s+${escaped}\\s*\n([\\s\\S]*?)(?=\n#{1,3}\\s|$)`, "i");
       const m = text.match(re);
@@ -34,23 +74,17 @@ function parseSections(raw: string): Omit<OptimizeResult, "raw"> {
   };
 
   const optimizedSection = extract([
-    "Optimized MiniMax H3 Prompt",
-    "Optimized Prompt",
-    "Optimized H3 Prompt",
+    "Optimized MiniMax H3 Prompt", "Optimized Prompt", "Optimized H3 Prompt",
   ]);
-
-  // split clips by ### Clip N or #### Clip N or just numbered blocks
   const clipBlocks = optimizedSection
     .split(/(?=\n?#{2,4}\s+Clip\s+\d|\n?---\s*\n)/i)
-    .map(s => s.trim())
-    .filter(s => s.length > 20);
-  const optimizedClips = clipBlocks.length > 0 ? clipBlocks : [optimizedSection];
+    .map(s => s.trim()).filter(s => s.length > 20);
 
   return {
     analysisReport: extract(["Prompt Analysis Report", "Analysis Report"]),
     mappingTable: extract(["Subject & Picture Mapping Table", "Subject and Picture Mapping", "Subject & Picture Mapping", "Mapping Table"]),
-    timingReport: extract(["Dialogue Timing Calibration Report", "Dialogue Timing Calibration", "Timing Calibration Report", "Timing Report"]),
-    optimizedClips,
+    timingReport: extract(["Dialogue Timing Calibration Report", "Dialogue Timing Calibration", "Timing Calibration Report"]),
+    optimizedClips: clipBlocks.length > 0 ? clipBlocks : [optimizedSection],
     elevenLabsScript: extract(["ElevenLabs Dialogue Script", "ElevenLabs Script", "ElevenLabs Dialogue"]),
     bgmSpec: extract(["BGM Spec", "BGM Specification", "Background Music Spec"]),
     validationReport: extract(["Validation Report", "Validation"]),

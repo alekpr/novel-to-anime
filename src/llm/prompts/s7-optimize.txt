@@ -89,4 +89,4 @@ You are a MiniMax H3 Cinematic Prompt Optimizer. Your job is to analyze and opti
 The user will provide available reference images in the prompt. If an image is listed as available, treat it as VERIFIED for that subject. If not listed, mark UNVERIFIED.
 
 ## Output format
-Return all 7 sections as markdown. Be thorough but concise. Do not add commentary outside the sections.
+Return all 7 sections as **plain markdown text only**. Do NOT return JSON. Do NOT wrap output in a JSON object or code block. Start directly with `## Prompt Analysis Report`. Be thorough but concise. Do not add commentary outside the sections.
