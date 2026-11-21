@@ -202,3 +202,45 @@ export async function callStructured<T extends z.ZodTypeAny>(
 
   throw new Error(`LLM output validation failed after ${maxRetries + 1} attempts: ${lastError}`);
 }
+
+// Plain text (markdown) call — no JSON schema, returns raw string
+export async function callText(opts: {
+  system: string;
+  user: string;
+  model?: string;
+  maxTokens?: number;
+  temperature?: number;
+}): Promise<string> {
+  const model = opts.model ?? config.llm.model;
+  if (isGeminiNative()) {
+    const r = await callGeminiNative({
+      model, apiKey: config.llm.apiKey,
+      system: opts.system, user: opts.user,
+      maxTokens: opts.maxTokens ?? 16000,
+      temperature: opts.temperature ?? 0.2,
+    });
+    if (r.blocked) {
+      const r2 = await callGeminiNative({
+        model: "gemini-3.5-flash", apiKey: config.llm.apiKey,
+        system: opts.system, user: opts.user,
+        maxTokens: opts.maxTokens ?? 16000,
+        temperature: opts.temperature ?? 0.2,
+      });
+      if (r2.blocked) throw new Error(`Gemini blocked [${r2.blocked}]`);
+      return r2.text;
+    }
+    return r.text;
+  }
+  // OpenAI-compatible
+  const client = makeClient("primary");
+  const res = await (client as any).chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: opts.system },
+      { role: "user", content: opts.user },
+    ],
+    max_tokens: opts.maxTokens ?? 16000,
+    temperature: opts.temperature ?? 0.2,
+  });
+  return res.choices[0]?.message?.content ?? "";
+}

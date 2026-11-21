@@ -195,4 +195,24 @@ export const promptsApi = {
     api.get(`/scenes/${sceneId}/clips`).then(r => r.data),
 }
 
+// Optimize (S7)
+export interface OptimizeResult {
+  analysisReport: string
+  mappingTable: string
+  timingReport: string
+  optimizedClips: string[]
+  elevenLabsScript: string
+  bgmSpec: string
+  validationReport: string
+  raw: string
+}
+
+export const optimizeApi = {
+  getScene: (sceneId: string) => api.get<OptimizeResult | null>(`/scenes/${sceneId}/optimized`).then(r => r.data),
+  optimizeScene: (sceneId: string, maxClipSec?: number) =>
+    api.post<OptimizeResult>(`/scenes/${sceneId}/optimize`, { maxClipSec }).then(r => r.data),
+  getEpisode: (episodeId: string) =>
+    api.get<Array<{ _id: string; sceneCode: string; title: string; hasOptimized: boolean; clipCount: number; optimizedClips: OptimizeResult | null }>>(`/episodes/${episodeId}/optimized`).then(r => r.data),
+}
+
 export default api

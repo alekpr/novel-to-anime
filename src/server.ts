@@ -18,6 +18,7 @@ import { promptRoutes } from "./routes/prompts.js";
 import { exportRoutes } from "./routes/export.js";
 import { qaRoutes } from "./routes/qa.js";
 import { propRoutes } from "./routes/props.js";
+import { optimizeRoutes } from "./routes/optimize.js";
 
 const ALLOWED_ORIGINS = [
   `http://localhost:${config.port}`,
@@ -58,6 +59,7 @@ export async function buildApp() {
   app.register(exportRoutes);
   app.register(qaRoutes);
   app.register(propRoutes);
+  app.register(optimizeRoutes);
 
   // เสิร์ฟ web build (web/dist) ถ้ามี
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
