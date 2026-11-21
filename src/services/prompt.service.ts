@@ -55,9 +55,17 @@ export async function runPromptGeneration(
     _id: Types.ObjectId; order: number; durationSec: number;
     breakQuality: string; shotType: string; action: string; emotion: string;
     characterIds: Types.ObjectId[];
+    propIds: Types.ObjectId[];
     dialogue: Array<{ speakerId?: Types.ObjectId; lineTh?: string; tone?: string; source: string }>;
   }>;
 
+  // resolve propIds → prop names per shot
+  const allPropIds = [...new Set(s3shots.flatMap(sh => sh.propIds?.map(id => id.toString()) ?? []))];
+  const propIdToName = new Map<string, string>();
+  if (allPropIds.length > 0) {
+    const foundProps = await PropObject.find({ _id: { $in: allPropIds } }, { name: 1 }).lean() as unknown as Array<{ _id: Types.ObjectId; name: string }>;
+    foundProps.forEach(p => propIdToName.set(p._id.toString(), p.name));
+  }
   const charIdToId = new Map(characters.map(c => [c._id.toString(), c._id.toString()]));
   const charContext = characters.map((c) => `- ID: ${c._id} | name: ${c.name}`).join("\n");
 
@@ -167,6 +175,7 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
       description: vis?.description ?? translatedActions[s3shots.indexOf(sh)] ?? "",
       dialogue,
       charactersInShot: sh.characterIds.map(id => id.toString()).filter(id => charIdToId.has(id)),
+      propsInShot: (sh.propIds ?? []).map(id => propIdToName.get(id.toString())).filter((n): n is string => !!n),
     };
   });
 
@@ -203,6 +212,7 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
       appearanceBlock: c.appearanceBlock,
       name: c.name,
     })),
+    props,
     referencePictures: [],
     dialogueLanguage,
     clipPolicy,

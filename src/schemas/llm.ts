@@ -186,6 +186,7 @@ export const ShotDraft = z.object({
   description: z.string(),
   dialogue: z.array(DialogueLine4a).max(4).default([]),
   charactersInShot: z.array(z.string()),
+  propsInShot: z.array(z.string()).default([]),
 });
 
 export const SceneVideoPromptDraft = z.object({
