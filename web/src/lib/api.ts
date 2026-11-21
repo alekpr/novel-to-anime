@@ -32,6 +32,20 @@ export interface Character {
   voice?: { gender?: string; pitch?: string; voicePrompt?: string }
 }
 
+export interface PropObject {
+  _id: string
+  projectId: string
+  name: string
+  aliases: string[]
+  category: 'weapon' | 'artifact' | 'clothing' | 'document' | 'container' | 'tool' | 'food' | 'vehicle' | 'other'
+  description: string
+  visualPrompt: string
+  significance: string
+  ownedBy: string[]
+  episodes: number[]
+  status: 'draft' | 'approved'
+}
+
 export interface Faction {
   name: string
   description: string
@@ -130,6 +144,14 @@ export const factionsApi = {
     api.patch<Faction[]>(`/projects/${projectId}/factions/${encodeURIComponent(name)}`, data).then(r => r.data),
   delete: (projectId: string, name: string) =>
     api.delete<Faction[]>(`/projects/${projectId}/factions/${encodeURIComponent(name)}`).then(r => r.data),
+}
+
+// Props
+export const propsApi = {
+  list: (projectId: string) => api.get<PropObject[]>(`/projects/${projectId}/props`).then(r => r.data),
+  update: (id: string, data: Partial<PropObject>) => api.patch<PropObject>(`/props/${id}`, data).then(r => r.data),
+  approve: (id: string) => api.post<PropObject>(`/props/${id}/approve`).then(r => r.data),
+  delete: (id: string) => api.delete(`/props/${id}`).then(r => r.data),
 }
 
 // Locations

@@ -58,6 +58,11 @@
 - `wide` ใช้ได้เฉพาะ: ฉากต่อสู้/วิ่งที่ต้องเห็น full body action จริงๆ — จำกัดไม่เกิน 1 shot ต่อ scene
 - ตารางลำดับความนิยม: **close-up > medium > medium-long > wide > establishing**
 
+**กฎ Props ใน Shot:**
+- **propNames**: ระบุชื่อ props จาก Bible ที่ปรากฏหรือถูกใช้ใน shot นั้น (ใช้ชื่อตรงกับ Bible เท่านั้น)
+- ถ้า shot เป็น insert shot ของวัตถุ ให้ระบุ prop นั้นใน propNames เสมอ
+- ถ้าตัวละครถือ/ใช้ prop ที่อยู่ใน Bible ให้ระบุใน propNames ด้วย
+
 **กฎ shot อื่นๆ:**
 - breakQuality: "hard" = ตัดได้ดี (เปลี่ยนสถานที่/จบบทสนทนา), "soft" = ตัดได้, "avoid" = ห้ามตัดหลัง shot นี้ (กลางประโยค/กลางแอ็กชัน)
 - characterNames เฉพาะตัวละครที่ปรากฏใน shot นั้น (ไม่เกิน 2)

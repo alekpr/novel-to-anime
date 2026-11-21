@@ -6,6 +6,7 @@ import { SceneVideoPromptDraft, type SceneVideoPromptDraftType } from "../schema
 import { Character } from "../models/Character.js";
 import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
+import { PropObject } from "../models/PropObject.js";
 import { Project } from "../models/Project.js";
 import { assembleDY } from "../templates/dy.js";
 
@@ -60,6 +61,12 @@ export async function runPromptGeneration(
   const charIdToId = new Map(characters.map(c => [c._id.toString(), c._id.toString()]));
   const charContext = characters.map((c) => `- ID: ${c._id} | name: ${c.name}`).join("\n");
 
+  // ดึง props ของ project
+  const props = await PropObject.find({ projectId: scene.projectId }).lean() as unknown as Array<{ name: string; visualPrompt: string }>;
+  const propContext = props.length > 0
+    ? props.map(p => `- ${p.name}: ${p.visualPrompt}`).join("\n")
+    : "(none)";
+
   // แปลง action เป็น English สำหรับส่ง LLM
   let translatedActions: string[] = s3shots.map(sh => sh.action);
   if (s3shots.length > 0) {
@@ -95,6 +102,9 @@ Location: ${locationName} | Mood: ${sc.mood ?? ""} | Summary: ${sc.summary ?? ""
 
 ## Characters (use {{char:ID}} tokens in description; IDs listed below)
 ${charContext || "(none)"}
+
+## Props from Bible (use {{prop:NAME}} token when prop appears in shot)
+${propContext}
 
 ## Shots from S3 — FIXED (do NOT change order, duration, or count)
 ${shotList}
