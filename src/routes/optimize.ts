@@ -14,9 +14,9 @@ export async function optimizeRoutes(app: FastifyInstance) {
   // POST trigger optimization
   app.post("/scenes/:id/optimize", async (req, reply) => {
     const { id } = req.params as { id: string };
-    const body = req.body as { maxClipSec?: number } | undefined;
+    const body = req.body as { maxClipSec?: number; imageRefFormat?: "@Image" | "<Picture>" } | undefined;
     try {
-      const result = await runOptimizeScene(id, body?.maxClipSec);
+      const result = await runOptimizeScene(id, body?.maxClipSec, body?.imageRefFormat);
       return result;
     } catch (err: any) {
       return reply.code(500).send({ error: err.message });

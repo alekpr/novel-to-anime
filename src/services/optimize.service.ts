@@ -93,7 +93,8 @@ function parseSections(raw: string): Omit<OptimizeResult, "raw"> {
 
 export async function runOptimizeScene(
   sceneId: string,
-  maxClipSec?: number
+  maxClipSec?: number,
+  imageRefFormat: "@Image" | "<Picture>" = "@Image"
 ): Promise<OptimizeResult> {
   const scene = await Scene.findById(sceneId)
     .populate<{ locationId: { name: string; masterPrompt: string } }>("locationId", "name masterPrompt")
@@ -117,15 +118,16 @@ export async function runOptimizeScene(
   // สร้าง reference image context
   const refImageLines: string[] = [];
   let picIdx = 1;
+  const formatRef = (n: number) => imageRefFormat === "@Image" ? `@Image ${n}` : `<Picture ${n}>`;
   if (loc) {
-    refImageLines.push(`<Picture ${picIdx++}>: Location "${loc.name}" — ${loc.masterPrompt || "no prompt"} [UNVERIFIED — no image file provided]`);
+    refImageLines.push(`${formatRef(picIdx++)} (Location "${loc.name}"): ${loc.masterPrompt || "no prompt"} [UNVERIFIED — no image file provided]`);
   }
   for (const c of characters) {
     const approved = c.referenceImages?.find(r => r.approved);
     if (approved) {
-      refImageLines.push(`<Picture ${picIdx++}>: Character "${c.name}" — ${c.appearanceBlock} [VERIFIED — reference image available at ${approved.url}]`);
+      refImageLines.push(`${formatRef(picIdx++)} (Character "${c.name}"): ${c.appearanceBlock} [VERIFIED — reference image available at ${approved.url}]`);
     } else {
-      refImageLines.push(`<Picture ${picIdx++}>: Character "${c.name}" — ${c.appearanceBlock} [UNVERIFIED — no approved reference image]`);
+      refImageLines.push(`${formatRef(picIdx++)} (Character "${c.name}"): ${c.appearanceBlock} [UNVERIFIED — no approved reference image]`);
     }
   }
 
@@ -138,9 +140,14 @@ export async function runOptimizeScene(
     `### Clip ${i + 1} (${c.clipCode}, ${c.durationSec}s)\n\`\`\`\n${c.videoPrompt}\n\`\`\``
   ).join("\n\n");
 
+  const imageRefNote = imageRefFormat === "@Image"
+    ? "Use `@Image N` format for all image references in the optimized prompt (e.g. `Linked to @Image 1`)."
+    : "Use `<Picture N>` format for all image references in the optimized prompt (e.g. `Linked to <Picture 1>`)."
+
   const userPrompt = `## Scene: ${sc.sceneCode} — ${sc.title}
 Mood: ${sc.mood ?? ""}
 ${maxDurLine}
+Image reference format: ${imageRefNote}
 
 ## Available Reference Images
 ${refImageLines.length > 0 ? refImageLines.join("\n") : "(none)"}
@@ -149,7 +156,7 @@ ${refImageLines.length > 0 ? refImageLines.join("\n") : "(none)"}
 ${allClipPrompts}
 
 ---
-Optimize the above prompt(s) according to the validation rules. Output all 7 required sections.`;
+Optimize the above prompt(s) according to the validation rules. Output all 7 required sections in order. For the Optimized MiniMax H3 Prompt section, output in DY format as specified in Rule 8a.`;
 
   const raw = await callText({
     system: loadPrompt("s7-optimize.txt"),

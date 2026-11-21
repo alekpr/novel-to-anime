@@ -209,8 +209,8 @@ export interface OptimizeResult {
 
 export const optimizeApi = {
   getScene: (sceneId: string) => api.get<OptimizeResult | null>(`/scenes/${sceneId}/optimized`).then(r => r.data),
-  optimizeScene: (sceneId: string, maxClipSec?: number) =>
-    api.post<OptimizeResult>(`/scenes/${sceneId}/optimize`, { maxClipSec }).then(r => r.data),
+  optimizeScene: (sceneId: string, maxClipSec?: number, imageRefFormat?: '@Image' | '<Picture>') =>
+    api.post<OptimizeResult>(`/scenes/${sceneId}/optimize`, { maxClipSec, imageRefFormat }).then(r => r.data),
   getEpisode: (episodeId: string) =>
     api.get<Array<{ _id: string; sceneCode: string; title: string; hasOptimized: boolean; clipCount: number; optimizedClips: OptimizeResult | null }>>(`/episodes/${episodeId}/optimized`).then(r => r.data),
 }

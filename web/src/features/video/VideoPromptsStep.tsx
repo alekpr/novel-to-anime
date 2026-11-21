@@ -79,7 +79,7 @@ function ResultSections({ result }: { result: OptimizeResult }) {
   )
 }
 
-function OptimizedPanel({ scene, maxClipSec }: { scene: Scene; maxClipSec: number | null }) {
+function OptimizedPanel({ scene, maxClipSec, imageRefFormat }: { scene: Scene; maxClipSec: number | null; imageRefFormat: '@Image' | '<Picture>' }) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
 
@@ -91,7 +91,7 @@ function OptimizedPanel({ scene, maxClipSec }: { scene: Scene; maxClipSec: numbe
   })
 
   const optimize = useMutation({
-    mutationFn: () => optimizeApi.optimizeScene(scene._id, maxClipSec ?? undefined),
+    mutationFn: () => optimizeApi.optimizeScene(scene._id, maxClipSec ?? undefined, imageRefFormat),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['optimized', scene._id] }),
   })
 
@@ -144,6 +144,7 @@ function OptimizedPanel({ scene, maxClipSec }: { scene: Scene; maxClipSec: numbe
 
 export function VideoPromptsStep({ episodeId }: Props) {
   const [maxClipSec, setMaxClipSec] = useState<string>('')
+  const [imageRefFormat, setImageRefFormat] = useState<'@Image' | '<Picture>'>('@Image')
   const qc = useQueryClient()
 
   const { data: scenes = [], isLoading } = useQuery({
@@ -156,7 +157,7 @@ export function VideoPromptsStep({ episodeId }: Props) {
       const sec = maxClipSec ? Number(maxClipSec) : undefined
       for (const sc of scenes) {
         if ((sc as any).clips?.length > 0 || (sc as any).shotCount > 0) {
-          await optimizeApi.optimizeScene(sc._id, sec)
+          await optimizeApi.optimizeScene(sc._id, sec, imageRefFormat)
           qc.invalidateQueries({ queryKey: ['optimized', sc._id] })
         }
       }
@@ -176,6 +177,22 @@ export function VideoPromptsStep({ episodeId }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1 border rounded px-2 py-1.5 bg-white text-xs">
+            <span className="text-gray-500 mr-1">image ref:</span>
+            {(['@Image', '<Picture>'] as const).map(fmt => (
+              <button
+                key={fmt}
+                onClick={() => setImageRefFormat(fmt)}
+                className={`px-2 py-0.5 rounded font-mono ${
+                  imageRefFormat === fmt
+                    ? 'bg-purple-600 text-white'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {fmt === '@Image' ? '@Image N' : '<Picture N>'}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center gap-1.5 border rounded px-2 py-1.5 bg-white">
             <span className="text-xs text-gray-500">max clip:</span>
             <input
@@ -220,6 +237,7 @@ export function VideoPromptsStep({ episodeId }: Props) {
             key={sc._id}
             scene={sc}
             maxClipSec={maxClipSec ? Number(maxClipSec) : null}
+            imageRefFormat={imageRefFormat}
           />
         ))}
       </div>
