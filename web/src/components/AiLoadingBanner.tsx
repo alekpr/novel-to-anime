@@ -3,15 +3,16 @@ import type { Job } from '../lib/api'
 interface Props {
   job: Job | null
   label?: string
+  pending?: boolean
 }
 
-export function AiLoadingBanner({ job, label = 'กำลังประมวลผล' }: Props) {
-  if (!job || (job.status !== 'running' && job.status !== 'queued')) return null
-  const pct = Math.round((job.progress ?? 0) * 100)
+export function AiLoadingBanner({ job, label = 'กำลังประมวลผล', pending = false }: Props) {
+  if (!pending && job?.status !== 'running' && job?.status !== 'queued') return null
+  const pct = Math.round((job?.progress ?? 0) * 100)
   const isIndeterminate = pct === 0
 
   return (
-    <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-4 space-y-3">
+    <div role="status" aria-live="polite" className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-4 space-y-3">
       <div className="flex items-center gap-3">
         {/* spinner */}
         <svg className="animate-spin h-5 w-5 text-blue-600 shrink-0" viewBox="0 0 24 24" fill="none">
@@ -20,7 +21,7 @@ export function AiLoadingBanner({ job, label = 'กำลังประมว�
         </svg>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-blue-800">{label}…</div>
-          {job.statusMessage && (
+          {job?.statusMessage && (
             <div className="text-xs text-blue-600 mt-0.5 truncate">{job.statusMessage}</div>
           )}
         </div>

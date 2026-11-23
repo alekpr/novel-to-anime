@@ -1,4 +1,5 @@
 import { Schema, model, Types } from "mongoose";
+import { DRAMA_EP_SECONDS } from "../utils/shortDrama.js";
 
 const factionSchema = new Schema({
   name: { type: String, required: true },
@@ -43,7 +44,17 @@ const dialoguePolicySchema = new Schema({
 const projectSchema = new Schema({
   title: { type: String, required: true },
   language: { type: String, default: "th" },
-  targetEpDurationSec: { type: Number, default: 480 }, // 8 นาที
+  genre: { type: String, trim: true },
+  deletionPending: { type: Boolean, default: false },
+  storySource: {
+    type: new Schema({
+      mode: { type: String, enum: ["story", "outline"], required: true },
+      text: { type: String, required: true, select: false },
+      episodeCount: { type: Number, required: true },
+    }, { _id: false }),
+    default: undefined,
+  },
+  targetEpDurationSec: { type: Number, default: DRAMA_EP_SECONDS },
   factions: { type: [factionSchema], default: [] },
   styleGuide: { type: styleGuideSchema, default: () => ({}) },
   videoModel: { type: videoModelSchema, default: () => ({}) },

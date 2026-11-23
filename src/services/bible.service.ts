@@ -58,12 +58,8 @@ export async function runBibleExtraction(
   await mergeLocations(projectId, episode.number, data.locations, existingLocs);
   await mergeFactions(projectId, data.factions ?? [], existingFactions);
 
-  if (data.episodeSummary) {
-    await Episode.findByIdAndUpdate(episodeId, {
-      summary: data.episodeSummary,
-      status: "bible_review",
-    });
-  }
+  if (data.episodeSummary) await Episode.updateOne({ _id: episodeId }, { $set: { summary: data.episodeSummary } });
+  await Episode.updateOne({ _id: episodeId, status: "ingested" }, { $set: { status: "bible_review" } });
 
   await Job.findByIdAndUpdate(jobId, {
     status: "succeeded",
@@ -282,15 +278,15 @@ function buildBibleContext(
   factions: Array<{ name: string; costumePrompt: string }>
 ): string {
   if (chars.length === 0 && locs.length === 0 && factions.length === 0) return "(no existing Bible)";
-  const charList = chars.map((c) => `- ${c.name} (${c.role})`).join("\n");
-  const locList = locs.map((l) => `- ${l.name}`).join("\n");
+  const charList = chars.map(c => `- ${c.name} (${c.role})${c.aliases?.length ? ` | aka ${c.aliases.join(", ")}` : ""}`).join("\n");
+  const locList = locs.map(l => `- ${l.name}${l.aliases?.length ? ` | aka ${l.aliases.join(", ")}` : ""}`).join("\n");
   const facList = factions.map((f) => `- ${f.name}: ${f.costumePrompt}`).join("\n");
   return `Existing characters:\n${charList || "(none)"}\n\nExisting locations:\n${locList || "(none)"}\n\nExisting factions/costumes:\n${facList || "(none)"}`;
 }
 
 function buildS1Prompt(epNumber: number, title: string, bibleContext: string, novelText: string): string {
   return `
-## Existing Bible (do not duplicate these)
+## Existing Bible (reuse names for recurring characters and locations)
 ${bibleContext}
 
 ## Novel text EP ${epNumber}: ${title}
@@ -298,6 +294,7 @@ ${novelText}
 
 ## Instructions
 - Extract ALL characters, locations, and factions — including monsters, creatures, beasts, demons, or spirits (use role: "monster")
+- Return every character and location used in this episode, including returning entries with no changes. Use the exact existing Bible name for returning entries, even if the chapter uses an alias. Include each just once so it can be linked to this episode.
 - Extract ALL factions/groups that share a costume (sect ranks, unit types, etc.)
 - For appearance fields (hair/skin/eyes/build/distinguishing/defaultOutfit): NEVER output "unknown" — always infer a reasonable value and add the field to inferredFields
 - If a character belongs to a faction listed in the existing Bible, their outfit MUST reference that faction's costumePrompt as the base

@@ -22,7 +22,20 @@ export async function sceneRoutes(app: FastifyInstance) {
 
   app.patch("/scenes/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    const s = await Scene.findByIdAndUpdate(id, req.body as object, { new: true });
+    const current = await Scene.findById(id).lean();
+    if (!current) return reply.code(404).send({ error: "Not found" });
+    const changes = req.body as Record<string, unknown>;
+    const update = current.dramaBeat
+      ? {
+          $set: {
+            ...Object.fromEntries(Object.entries(changes).filter(([key]) =>
+              ["title", "summary", "timeOfDay", "mood"].includes(key))),
+            shotsApproved: false,
+            "clips.$[].stale": true,
+          },
+        }
+      : changes;
+    const s = await Scene.findByIdAndUpdate(id, update, { new: true });
     if (!s) return reply.code(404).send({ error: "Not found" });
     return s;
   });
@@ -40,6 +53,7 @@ export async function sceneRoutes(app: FastifyInstance) {
     return Shot.find({ sceneId: id })
       .sort({ order: 1 })
       .populate("characterIds", "name")
+      .populate("dialogue.speakerId", "name")
       .populate("locationId", "name");
   });
 }

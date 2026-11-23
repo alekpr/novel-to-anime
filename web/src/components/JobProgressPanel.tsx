@@ -8,13 +8,14 @@ interface Props {
 export function JobProgressPanel({ job, onDismiss }: Props) {
   if (!job) return null
   const pct = Math.round((job.progress ?? 0) * 100)
-  const color = job.status === 'failed' ? 'bg-red-500' : job.status === 'succeeded' ? 'bg-green-500' : 'bg-blue-500'
+  const failed = job.status === 'failed' || job.status === 'interrupted'
+  const color = failed ? 'bg-red-500' : job.status === 'succeeded' ? 'bg-green-500' : 'bg-blue-500'
 
   return (
     <div className="fixed bottom-4 right-4 w-80 bg-white border rounded-lg shadow-lg p-4 z-50">
       <div className="flex justify-between items-start mb-2">
         <div className="font-medium text-sm">งาน {job.stage}</div>
-        {(job.status === 'succeeded' || job.status === 'failed') && (
+        {(job.status === 'succeeded' || failed) && (
           <button onClick={onDismiss} className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
         )}
       </div>
@@ -24,7 +25,7 @@ export function JobProgressPanel({ job, onDismiss }: Props) {
       <div className="text-xs text-gray-500">
         {job.status === 'running' && `กำลังทำงาน… ${pct}%`}
         {job.status === 'succeeded' && '✔ เสร็จแล้ว'}
-        {job.status === 'failed' && `✖ ล้มเหลว: ${job.error ?? ''}`}
+        {failed && (job.error || 'งานหยุดกลางทาง กรุณาลองอีกครั้ง')}
         {job.status === 'queued' && 'รอคิว…'}
       </div>
       {job.tokens && (

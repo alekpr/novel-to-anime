@@ -22,6 +22,14 @@ export interface StructuredResult<T> { data: T; tokens: TokenUsage }
 
 const MAX_TOKENS_CAP = 65536;
 
+export class LLMOutputValidationError extends Error {}
+
+export class GeminiRequestError extends Error {
+  constructor(readonly status: number, details: string) {
+    super(`Gemini API error ${status}: ${details}`);
+  }
+}
+
 function isGeminiNative(): boolean {
   return config.llm.provider === "gemini";
 }
@@ -54,7 +62,7 @@ async function callGeminiNative(opts: {
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${err.slice(0, 300)}`);
+    throw new GeminiRequestError(res.status, err.slice(0, 300));
   }
 
   const json = await res.json() as {
@@ -200,5 +208,5 @@ export async function callStructured<T extends z.ZodTypeAny>(
     }
   }
 
-  throw new Error(`LLM output validation failed after ${maxRetries + 1} attempts: ${lastError}`);
+  throw new LLMOutputValidationError(`LLM output validation failed after ${maxRetries + 1} attempts: ${lastError}`);
 }

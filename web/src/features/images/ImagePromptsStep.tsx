@@ -1,9 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { charactersApi, episodesApi, locationsApi } from '../../lib/api'
+import { charactersApi, locationsApi } from '../../lib/api'
+import { characterReferenceSheet, locationReferenceSheet } from '../../../../src/templates/referenceSheet'
 import type { Character, Location } from '../../lib/api'
+import { ImageResourceSlot, ImageWorkspaceControls } from './ImageResourceControls'
+import { characterImageKey, locationImageKey, outfitImageKeys } from './useImageResources'
+import type { EpisodeImageResources } from './useImageResources'
 
-interface Props { projectId: string; episodeId: string }
+interface Props { projectId: string; currentEp: number; resources: EpisodeImageResources }
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -19,7 +23,10 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-function PromptBlock({ label, text, highlight }: { label: string; text: string; highlight?: boolean }) {
+function PromptBlock({ label, text, highlight, reference }: {
+  label: string; text: string; highlight?: boolean
+  reference?: { slotKey: string; resources: EpisodeImageResources }
+}) {
   if (!text) return null
   return (
     <div className="space-y-1">
@@ -33,6 +40,7 @@ function PromptBlock({ label, text, highlight }: { label: string; text: string; 
         ${highlight ? 'bg-purple-50 border-purple-200' : 'bg-gray-50'}`}>
         {text}
       </pre>
+      {reference && <ImageResourceSlot {...reference} />}
     </div>
   )
 }
@@ -46,12 +54,17 @@ function SpinIcon() {
   )
 }
 
-function CharCard({ char, currentEp, onRefresh }: { char: Character; currentEp: number; onRefresh: () => void }) {
+function CharCard({ char, currentEp, onRefresh, resources }: {
+  char: Character; currentEp: number; onRefresh: () => void; resources: EpisodeImageResources
+}) {
   const [open, setOpen] = useState(false)
-  const outfits = (char as any).outfits ?? []
+  const outfits = char.outfits ?? []
+  const outfitKeys = outfitImageKeys(char)
+  const appearance = char.appearanceBlock ||
+    [char.appearance?.hair, char.appearance?.skin, char.appearance?.eyes, char.appearance?.build].filter(Boolean).join(', ')
   const isFirstEp = char.episodes?.[0] === currentEp
-  const missingPrompts = outfits.filter((o: any) => !o.outfitPrompt || !o.outfitSheetPrompt)
-  const hasNewOutfit = !isFirstEp && outfits.some((o: any) => !o.usedInScenes?.length)
+  const missingPrompts = outfits.filter((o) => !o.outfitPrompt || !o.outfitSheetPrompt)
+  const hasNewOutfit = !isFirstEp && outfits.some((o) => !o.usedInScenes?.length)
 
   const genOutfits = useMutation({
     mutationFn: () => charactersApi.generateOutfitPrompts(char._id),
@@ -70,9 +83,9 @@ function CharCard({ char, currentEp, onRefresh }: { char: Character; currentEp: 
 
   return (
     <div className={`border rounded-lg overflow-hidden ${hasNewOutfit ? 'border-purple-300' : ''}`}>
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex justify-between items-center px-4 py-3 bg-white hover:bg-gray-50 text-left">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-white px-4 py-3">
+        <button type="button" aria-expanded={open} onClick={() => setOpen(o => !o)}
+          className="flex flex-1 flex-wrap items-center gap-2 text-left hover:text-blue-700">
           <span className="font-medium">{char.name}</span>
           <span className={`text-xs px-1.5 py-0.5 rounded ${char.role === 'main' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
             {char.role}
@@ -88,11 +101,12 @@ function CharCard({ char, currentEp, onRefresh }: { char: Character; currentEp: 
               ⚠ {missingPrompts.length} ชุดไม่มี prompt
             </span>
           )}
-        </div>
+          <span aria-hidden="true" className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
+        </button>
         <div className="flex items-center gap-2 shrink-0">
           {missingPrompts.length > 0 && (
             <button
-              onClick={(e) => { e.stopPropagation(); genOutfits.mutate() }}
+              onClick={() => genOutfits.mutate()}
               disabled={genOutfits.isPending}
               className="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-40 flex items-center gap-1"
             >
@@ -100,7 +114,7 @@ function CharCard({ char, currentEp, onRefresh }: { char: Character; currentEp: 
             </button>
           )}
           <button
-            onClick={(e) => { e.stopPropagation(); resetAppearance.mutate() }}
+            onClick={() => resetAppearance.mutate()}
             disabled={resetAppearance.isPending}
             title="Reset appearanceBlock + characterSheetPrompt กลับไปยึดข้อมูลจากนิยายต้นฉบับ"
             className="text-xs px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-40 flex items-center gap-1"
@@ -108,16 +122,15 @@ function CharCard({ char, currentEp, onRefresh }: { char: Character; currentEp: 
             {resetAppearance.isPending ? <><SpinIcon /> resetting…</> : '↩ Reset'}
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); regenAppearance.mutate() }}
+            onClick={() => regenAppearance.mutate()}
             disabled={regenAppearance.isPending}
             title="Regenerate appearanceBlock + characterSheetPrompt ใหม่ โดยใส่ context ตัวละครอื่นเพื่อให้แตกต่างกัน"
             className="text-xs px-2 py-1 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-40 flex items-center gap-1"
           >
             {regenAppearance.isPending ? <><SpinIcon /> generating…</> : '🔄 Regen Appearance'}
           </button>
-          <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
         </div>
-      </button>
+      </div>
       {open && (
         <div className="px-4 pb-4 space-y-4 border-t bg-white pt-3">
 
@@ -125,10 +138,10 @@ function CharCard({ char, currentEp, onRefresh }: { char: Character; currentEp: 
           {outfits.length > 0 && (
             <div className="space-y-3">
               <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Outfit Prompts</div>
-              {outfits.map((o: any, i: number) => {
+              {outfits.map((o, i) => {
                 const isNew = !o.usedInScenes?.length && !isFirstEp
                 return (
-                  <div key={i} className={`rounded-lg border p-3 space-y-2 ${isNew ? 'border-purple-200 bg-purple-50' : 'border-gray-100'}`}>
+                  <div key={outfitKeys[i]} className={`rounded-lg border p-3 space-y-2 ${isNew ? 'border-purple-200 bg-purple-50' : 'border-gray-100'}`}>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium">{o.name}</span>
                       {isNew && <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">ใหม่ EP{currentEp}</span>}
@@ -138,10 +151,8 @@ function CharCard({ char, currentEp, onRefresh }: { char: Character; currentEp: 
                       ? <PromptBlock label="Outfit Prompt (video/scene)" text={o.outfitPrompt} highlight={isNew} />
                       : <div className="text-xs text-orange-500">⚠ ยังไม่มี outfitPrompt</div>
                     }
-                    {o.outfitSheetPrompt
-                      ? <PromptBlock label="Character Sheet Prompt (ชุดนี้)" text={o.outfitSheetPrompt} highlight={isNew} />
-                      : <div className="text-xs text-orange-500">⚠ ยังไม่มี outfitSheetPrompt</div>
-                    }
+                    <PromptBlock label="Character Reference 2×2" text={characterReferenceSheet(char.name, appearance, o.outfitPrompt || o.description)} highlight={isNew}
+                      reference={{ slotKey: outfitKeys[i], resources }} />
                   </div>
                 )
               })}
@@ -149,8 +160,9 @@ function CharCard({ char, currentEp, onRefresh }: { char: Character; currentEp: 
           )}
 
           {/* Base appearance (ไม่มีชุด) */}
-          <PromptBlock label="Appearance Block (base — ไม่มีชุด)" text={(char as any).appearanceBlock ?? ''} />
-          <PromptBlock label="Character Sheet Prompt" text={(char as any).characterSheetPrompt ?? ''} />
+          <PromptBlock label="Appearance Block (base — ไม่มีชุด)" text={appearance} />
+          {!outfits.length && <PromptBlock label="Character Reference 2×2" text={characterReferenceSheet(char.name, appearance, char.appearance?.defaultOutfit ?? '')}
+            reference={{ slotKey: characterImageKey(char._id), resources }} />}
           <PromptBlock label="Voice Prompt" text={char.voice?.voicePrompt ?? ''} />
         </div>
       )}
@@ -158,7 +170,7 @@ function CharCard({ char, currentEp, onRefresh }: { char: Character; currentEp: 
   )
 }
 
-function LocCard({ loc, onRefresh }: { loc: Location; onRefresh: () => void }) {
+function LocCard({ loc, onRefresh, resources }: { loc: Location; onRefresh: () => void; resources: EpisodeImageResources }) {
   const [open, setOpen] = useState(false)
 
   const regenPrompts = useMutation({
@@ -173,16 +185,17 @@ function LocCard({ loc, onRefresh }: { loc: Location; onRefresh: () => void }) {
 
   return (
     <div className="border rounded-lg overflow-hidden">
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex justify-between items-center px-4 py-3 bg-white hover:bg-gray-50 text-left">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-white px-4 py-3">
+        <button type="button" aria-expanded={open} onClick={() => setOpen(o => !o)}
+          className="flex flex-1 flex-wrap items-center gap-2 text-left hover:text-blue-700">
           <span className="font-medium">{loc.name}</span>
           <span className="text-xs text-gray-500">{loc.type}</span>
           {loc.status === 'approved' && <span className="text-green-600 text-xs">✔</span>}
-        </div>
+          <span aria-hidden="true" className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
+        </button>
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={(e) => { e.stopPropagation(); resetPrompts.mutate() }}
+            onClick={() => resetPrompts.mutate()}
             disabled={resetPrompts.isPending}
             title="Reset locationBlock + masterPrompt กลับไปยึดข้อมูลจากนิยายต้นฉบับ"
             className="text-xs px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-40 flex items-center gap-1"
@@ -190,7 +203,7 @@ function LocCard({ loc, onRefresh }: { loc: Location; onRefresh: () => void }) {
             {resetPrompts.isPending ? <><SpinIcon /> resetting…</> : '↩ Reset'}
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); regenPrompts.mutate() }}
+            onClick={() => regenPrompts.mutate()}
             disabled={regenPrompts.isPending}
             title="Regenerate locationBlock + masterPrompt ใหม่"
             className="text-xs px-2 py-1 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-40 flex items-center gap-1"
@@ -200,49 +213,41 @@ function LocCard({ loc, onRefresh }: { loc: Location; onRefresh: () => void }) {
               : '🔄 Regen Prompts'
             }
           </button>
-          <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
         </div>
-      </button>
+      </div>
       {open && (
         <div className="px-4 pb-4 space-y-3 border-t bg-white pt-3">
-          <PromptBlock label="Location Block (ใส่ใน video prompt)" text={(loc as any).locationBlock ?? ''} />
-          <PromptBlock label="Master Prompt" text={(loc as any).masterPrompt ?? ''} />
+          <PromptBlock label="Location Block (ใส่ใน video prompt)" text={loc.locationBlock ?? ''} />
+          <PromptBlock label="Location Reference 2×2" text={locationReferenceSheet(loc.name, [loc.description, loc.locationBlock].filter(Boolean).join('. ') || loc.masterPrompt || '')}
+            reference={{ slotKey: locationImageKey(loc._id), resources }} />
         </div>
       )}
     </div>
   )
 }
 
-export function ImagePromptsStep({ projectId, episodeId }: Props) {
+export function ImagePromptsStep({ projectId, currentEp, resources }: Props) {
   const qc = useQueryClient()
   const [tab, setTab] = useState<'chars' | 'locs'>('chars')
 
-  const { data: episode } = useQuery({
-    queryKey: ['episode', episodeId],
-    queryFn: () => episodesApi.get(episodeId),
-  })
-  const currentEp = episode?.number ?? 0
-
-  const { data: allChars = [] } = useQuery({ queryKey: ['characters', projectId], queryFn: () => charactersApi.list(projectId) })
-  const { data: allLocs = [] } = useQuery({ queryKey: ['locations', projectId], queryFn: () => locationsApi.list(projectId) })
   const refreshChars = () => qc.invalidateQueries({ queryKey: ['characters', projectId] })
   const refreshLocs = () => qc.invalidateQueries({ queryKey: ['locations', projectId] })
-
-  const chars = currentEp ? allChars.filter(c => c.episodes?.includes(currentEp)) : allChars
-  const locs = currentEp ? allLocs.filter(l => l.episodes?.includes(currentEp)) : allLocs
+  const { chars, locs } = resources
 
   const charsWithNewOutfit = chars.filter(c => {
-    const outfits = (c as any).outfits ?? []
+    const outfits = c.outfits ?? []
     const isFirstEp = c.episodes?.[0] === currentEp
-    return !isFirstEp && outfits.some((o: any) => !o.usedInScenes?.length)
+    return !isFirstEp && outfits.some((o) => !o.usedInScenes?.length)
   })
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-4">
       <div>
         <h2 className="text-xl font-semibold">ขั้น 5 – Image Prompts</h2>
-        <p className="text-sm text-gray-500 mt-1">copy prompt ไปใช้สร้างภาพด้วยโปรแกรมที่ต้องการ</p>
+        <p className="text-sm text-gray-500 mt-1">คัดลอกพรอมป์ Reference 2×2 แล้วเชื่อมไฟล์ภาพที่ท้ายพรอมป์</p>
       </div>
+
+      <ImageWorkspaceControls resources={resources} />
 
       {charsWithNewOutfit.length > 0 && (
         <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-sm text-purple-800">
@@ -260,9 +265,9 @@ export function ImagePromptsStep({ projectId, episodeId }: Props) {
         ))}
       </div>
       <div className="space-y-3">
-        {tab === 'chars' && chars.map(c => <CharCard key={c._id} char={c} currentEp={currentEp} onRefresh={refreshChars} />)}
-        {tab === 'locs' && locs.map(l => <LocCard key={l._id} loc={l} onRefresh={refreshLocs} />)}
-        {tab === 'chars' && chars.length === 0 && (
+        {tab === 'chars' && chars.map(c => <CharCard key={c._id} char={c} currentEp={currentEp} resources={resources} onRefresh={refreshChars} />)}
+        {tab === 'locs' && locs.map(l => <LocCard key={l._id} loc={l} resources={resources} onRefresh={refreshLocs} />)}
+        {!resources.isLoading && tab === 'chars' && chars.length === 0 && (
           <div className="text-gray-400 text-sm bg-gray-50 rounded p-4">ยังไม่มีตัวละคร — รัน Bible ก่อน</div>
         )}
       </div>

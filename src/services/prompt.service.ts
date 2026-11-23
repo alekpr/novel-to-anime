@@ -7,6 +7,7 @@ import { Character } from "../models/Character.js";
 import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
 import { Project } from "../models/Project.js";
+import { runShortDramaPrompt, type DramaScene } from "./shortDramaPrompt.service.js";
 import { assembleDY } from "../templates/dy.js";
 
 // S4a: LLM สร้างแค่ visual description + camera ต่อ shot
@@ -31,6 +32,10 @@ const ShotVisualResult = z.object({
 export async function runPromptGeneration(
   sceneId: string
 ): Promise<{ clips: Array<{ durationSec: number; prompt: string }>; validationErrors: string[] }> {
+  const baseScene = await Scene.findById(sceneId).lean<DramaScene>();
+  if (!baseScene) throw new Error(`Scene ${sceneId} not found`);
+  if (baseScene.dramaBeat) return runShortDramaPrompt(baseScene);
+
   const scene = await Scene.findById(sceneId)
     .populate<{ locationId: { _id: Types.ObjectId; name: string; locationBlock: string } }>("locationId", "name locationBlock")
     .lean();

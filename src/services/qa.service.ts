@@ -3,6 +3,7 @@ import { Episode } from "../models/Episode.js";
 import { Character } from "../models/Character.js";
 import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
+import { countDramaDialogue } from "../utils/dramaDialogue.js";
 
 export type QAIssue = {
   severity: "error" | "warning";
@@ -35,7 +36,7 @@ export async function runQA(projectId: string, episodeId: string): Promise<QARep
   const charMap = new Map(characters.map((c) => [c._id.toString(), c]));
 
   const scenes = await Scene.find({ episodeId }).sort({ order: 1 }).lean() as unknown as Array<{
-    _id: Types.ObjectId; sceneCode: string; characterIds?: Types.ObjectId[];
+    _id: Types.ObjectId; sceneCode: string; characterIds?: Types.ObjectId[]; dramaBeat?: unknown;
   }>;
 
   const shots = await Shot.find({ episodeId }).lean() as unknown as Array<{
@@ -44,6 +45,17 @@ export async function runQA(projectId: string, episodeId: string): Promise<QARep
     dialogue?: Array<{ speakerId?: Types.ObjectId; source: string; reviewed: boolean; lineTh?: string }>;
     prompts?: { video?: string; image?: string };
   }>;
+
+  const dramaSceneIds = new Set(scenes.filter(scene => scene.dramaBeat).map(scene => String(scene._id)));
+  if (dramaSceneIds.size) {
+    totalChecks++;
+    if (!countDramaDialogue(shots.filter(shot => dramaSceneIds.has(String(shot.sceneId))))) {
+      issues.push({
+        severity: "error", code: "MISSING_DRAMA_DIALOGUE", message: "ตอนนี้ยังไม่มีช็อตที่มีบทพูดพร้อมผู้พูด",
+        ref: { type: "episode", id: episodeId },
+      });
+    }
+  }
 
   // ---- Check 1: ตัวละครทุกตัวใน shot ต้องอยู่ใน scene ----
   for (const shot of shots) {

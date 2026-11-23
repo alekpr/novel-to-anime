@@ -6,7 +6,17 @@ export interface Project {
   _id: string
   title: string
   language: string
+  genre?: string
   createdAt: string
+  deletionPending?: boolean
+  storySource?: { mode: 'story' | 'outline'; episodeCount: number }
+}
+
+export type CreateProjectInput = {
+  title: string
+  language?: string
+  genre?: string
+  storySource?: NonNullable<Project['storySource']> & { text: string }
 }
 
 export interface Episode {
@@ -14,7 +24,9 @@ export interface Episode {
   projectId: string
   number: number
   title: string
+  targetDurationSec?: number | null
   status: string
+  productionStatus?: string
   paragraphs: { idx: number; text: string }[]
 }
 
@@ -23,12 +35,14 @@ export interface Character {
   projectId: string
   name: string
   aliases: string[]
-  role: 'main' | 'support' | 'extra'
+  role: 'main' | 'support' | 'extra' | 'monster'
   status: 'draft' | 'approved'
   needsReview?: boolean
   episodes: number[]
-  appearance?: { hair?: string; skin?: string; eyes?: string; build?: string; inferredFields?: string[] }
-  outfits?: { name: string; description: string; usedInScenes?: string[] }[]
+  appearance?: { hair?: string; skin?: string; eyes?: string; build?: string; defaultOutfit?: string; inferredFields?: string[] }
+  appearanceBlock?: string
+  characterSheetPrompt?: string
+  outfits?: { name: string; description: string; outfitPrompt?: string; outfitSheetPrompt?: string; usedInScenes?: string[] }[]
   voice?: { gender?: string; pitch?: string; voicePrompt?: string }
 }
 
@@ -45,6 +59,8 @@ export interface Location {
   name: string
   type: 'interior' | 'exterior'
   description?: string
+  locationBlock?: string
+  masterPrompt?: string
   status: 'draft' | 'approved'
   episodes: number[]
 }
@@ -61,6 +77,9 @@ export interface Scene {
   estDurationSec: number
   totalDurationSec?: number
   shotCount?: number
+  shotsApproved?: boolean
+  dramaBeat?: { entry: string; exit: string; dialoguePurpose?: string; clipDurationsSec?: number[] }
+  clips?: Clip[]
   status: 'draft' | 'approved'
   characterIds: string[]
   locationId?: string
@@ -76,7 +95,20 @@ export interface Shot {
   camera: string
   durationSec: number
   action: string
-  dialogue: { speakerId: string; lineTh: string; tone?: string; source: 'original' | 'generated'; reviewed: boolean }[]
+  characterIds?: (string | { _id: string; name: string })[]
+  emotion?: string
+  direction?: { blocking: string; performance: string; cut: string; backgroundActivity: string }
+  dialogue: { speakerId?: string | { _id: string; name: string }; lineTh: string; tone?: string; source: 'original' | 'generated'; reviewed: boolean }[]
+}
+
+export interface Clip {
+  clipCode: string
+  durationSec: number
+  startOffsetSec: number
+  videoPrompt: string
+  promptVersion: number
+  stale?: boolean
+  referenceSlots?: { index: number; name: string; role: 'character' | 'location'; resourceKey?: string }[]
 }
 
 export interface Job {
@@ -84,7 +116,7 @@ export interface Job {
   projectId: string
   episodeId?: string
   stage: string
-  status: 'queued' | 'running' | 'succeeded' | 'failed'
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'interrupted'
   progress: number
   statusMessage?: string
   error?: string
@@ -96,7 +128,9 @@ export interface Job {
 // Projects
 export const projectsApi = {
   list: () => api.get<Project[]>('/projects').then(r => r.data),
-  create: (data: { title: string; language?: string }) => api.post<Project>('/projects', data).then(r => r.data),
+  create: (data: CreateProjectInput) => api.post<Project>('/projects', data).then(r => r.data),
+  rename: (id: string, title: string) => api.patch<Project>(`/projects/${id}`, { title }).then(r => r.data),
+  delete: (id: string) => api.delete<{ deleted: true }>(`/projects/${id}`, { data: { confirm: true } }).then(r => r.data),
 }
 
 // Episodes
@@ -106,7 +140,7 @@ export const episodesApi = {
     api.post<Episode>(`/projects/${projectId}/episodes`, data).then(r => r.data),
   get: (id: string) => api.get<Episode>(`/episodes/${id}`).then(r => r.data),
   runStage: (id: string, stage: string, opts?: { targetDurationSec?: number | null }) =>
-    api.post<Job>(`/episodes/${id}/run/${stage}`, opts ?? {}).then(r => r.data),
+    api.post<{ jobId: string }>(`/episodes/${id}/run/${stage}`, opts ?? {}).then(r => r.data.jobId),
 }
 
 // Characters
@@ -155,6 +189,7 @@ export const shotsApi = {
     api.patch<Shot>(`/shots/${id}/dialogue/${idx}`, data).then(r => r.data),
   reviewAll: (id: string) => api.post<Shot>(`/shots/${id}/review-dialogue`).then(r => r.data),
   generateDialogue: (id: string) => api.post<Shot>(`/shots/${id}/generate-dialogue`).then(r => r.data),
+  approveScene: (sceneId: string) => api.post<{ shotCount: number }>(`/scenes/${sceneId}/approve-shots`).then(r => r.data),
   generateForScene: (sceneId: string) => api.post(`/scenes/${sceneId}/generate-shots`).then(r => r.data),
 }
 
@@ -168,9 +203,10 @@ export const promptsApi = {
   generateScene: (sceneId: string) =>
     api.post(`/scenes/${sceneId}/generate-prompt`).then(r => r.data),
   generateAll: (episodeId: string) =>
-    api.post(`/episodes/${episodeId}/generate-all-prompts`).then(r => r.data),
+    api.post<{ total: number; results: { sceneCode: string; clipCount: number; errors: string[] }[] }>(
+      `/episodes/${episodeId}/generate-all-prompts`).then(r => r.data),
   getClips: (sceneId: string) =>
-    api.get(`/scenes/${sceneId}/clips`).then(r => r.data),
+    api.get<{ clips: Clip[] }>(`/scenes/${sceneId}/clips`).then(r => r.data),
 }
 
 export default api

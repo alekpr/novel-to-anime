@@ -1,9 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
+import {
+  DRAMA_EP_SECONDS, DRAMA_MAX_CLIP_SECONDS, DRAMA_MIN_CLIP_SECONDS, DRAMA_REPLAN_MESSAGE,
+  hasInvalidDramaScenes, isDramaClipDuration, minimumDramaSceneCount,
+} from '../../../../src/utils/shortDrama'
 import { AiLoadingBanner } from '../../components/AiLoadingBanner'
 import { JobProgressPanel } from '../../components/JobProgressPanel'
 import { SourceTextPane } from '../../components/SourceTextPane'
-import { useJobStream } from '../../hooks/useJobStream'
+import { useJobProgress } from '../../hooks/useJobProgress'
 import { episodesApi, scenesApi } from '../../lib/api'
 import type { Scene } from '../../lib/api'
 
@@ -72,6 +76,7 @@ function SceneEditModal({ scene, onClose }: { scene: Scene; onClose: () => void 
                 type="number" min={5}
                 className="w-full border rounded px-3 py-2 text-sm"
                 value={form.estDurationSec}
+                disabled={!!scene.dramaBeat}
                 onChange={e => set('estDurationSec', Number(e.target.value))}
               />
             </div>
@@ -104,6 +109,7 @@ function SceneEditModal({ scene, onClose }: { scene: Scene; onClose: () => void 
 
 interface Props {
   episodeId: string
+  savedTargetDurationSec?: number | null
   onSelectScene: (sceneId: string) => void
   onDone: () => void
 }
@@ -117,6 +123,7 @@ const moodColors: Record<string, string> = {
 }
 
 function SceneCard({ scene, onClick, selected, onEdit }: { scene: Scene; onClick: () => void; selected?: boolean; onEdit: () => void }) {
+  const validDuration = isDramaClipDuration(scene.estDurationSec)
   return (
     <div
       onClick={onClick}
@@ -142,6 +149,16 @@ function SceneCard({ scene, onClick, selected, onEdit }: { scene: Scene; onClick
         </div>
       </div>
       <p className="text-sm text-gray-600 line-clamp-2">{scene.summary}</p>
+      {scene.dramaBeat && (
+        <div className="text-xs text-gray-500 space-y-1">
+          <p>เปิดซีน · {scene.dramaBeat.entry}</p>
+          <p>จบซีน · {scene.dramaBeat.exit}</p>
+          {scene.dramaBeat.dialoguePurpose && <p>บทพูด · {scene.dramaBeat.dialoguePurpose}</p>}
+          <p className={validDuration ? undefined : 'text-orange-700'}>
+            {validDuration ? `1 คลิป · ${scene.estDurationSec} วินาที` : 'ต้องแบ่งซีนใหม่'}
+          </p>
+        </div>
+      )}
       <div className="flex gap-2 text-xs text-gray-400">
         <span>👥 {scene.characterIds.length} ตัวละคร</span>
         {scene.shotCount && <span>🎬 {scene.shotCount} shots</span>}
@@ -150,14 +167,26 @@ function SceneCard({ scene, onClick, selected, onEdit }: { scene: Scene; onClick
   )
 }
 
-export function ScenesStep({ episodeId, onSelectScene, onDone }: Props) {
+export function ScenesStep({ episodeId, savedTargetDurationSec, onSelectScene, onDone }: Props) {
   const qc = useQueryClient()
   const [jobId, setJobId] = useState<string | null>(null)
   const jobIdRef = useRef<string | null>(null)
   const [selectedScene, setSelectedScene] = useState<Scene | null>(null)
   const [editingScene, setEditingScene] = useState<Scene | null>(null)
-  const [targetDuration, setTargetDuration] = useState<string>('')  // '' = auto
-  const streamJob = useJobStream(jobId)
+  const [targetDuration, setTargetDuration] = useState<{ minutes: string; seconds: string } | null>(null)
+  const savedSeconds = Math.max(1, Math.round(savedTargetDurationSec ?? DRAMA_EP_SECONDS))
+  const duration = targetDuration ?? {
+    minutes: String(Math.floor(savedSeconds / 60)),
+    seconds: String(savedSeconds % 60),
+  }
+  const minutes = Number(duration.minutes)
+  const seconds = Number(duration.seconds)
+  const targetDurationSec = minutes * 60 + seconds
+  const validDuration = duration.minutes !== '' && duration.seconds !== '' &&
+    Number.isSafeInteger(minutes) && minutes >= 0 &&
+    Number.isInteger(seconds) && seconds >= 0 && seconds < 60 &&
+    Number.isSafeInteger(targetDurationSec) && targetDurationSec >= DRAMA_MIN_CLIP_SECONDS
+  const streamJob = useJobProgress(jobId)
 
   const { data: scenes = [], isLoading } = useQuery({
     queryKey: ['scenes', episodeId],
@@ -165,66 +194,111 @@ export function ScenesStep({ episodeId, onSelectScene, onDone }: Props) {
   })
 
   const runS2 = useMutation({
-    mutationFn: () => {
-      const sec = targetDuration ? Number(targetDuration) * 60 : null
-      return episodesApi.runStage(episodeId, 'S2', { targetDurationSec: sec })
+    mutationFn: (targetDurationSec: number) => episodesApi.runStage(episodeId, 'S2', { targetDurationSec }),
+    onSuccess: (id) => {
+      jobIdRef.current = id
+      setJobId(id)
+      qc.invalidateQueries({ queryKey: ['episode', episodeId] })
     },
-    onSuccess: (job) => { jobIdRef.current = job._id; setJobId(job._id) },
   })
 
   useEffect(() => {
     if (streamJob?.status === 'succeeded' && jobIdRef.current) {
       qc.invalidateQueries({ queryKey: ['scenes', episodeId] })
+      qc.invalidateQueries({ queryKey: ['episode-status', episodeId] })
       jobIdRef.current = null
       setJobId(null)
     }
   }, [streamJob?.status, episodeId, qc])
 
-  const totalDur = scenes.reduce((s, sc) => s + sc.estDurationSec, 0)
+  const totalDur = Math.round(scenes.reduce((sum, scene) => sum + scene.estDurationSec, 0))
+  const isAnalyzing = runS2.isPending || streamJob?.status === 'queued' || streamJob?.status === 'running'
+  const needsReplan = hasInvalidDramaScenes(scenes)
 
   return (
     <div className="flex h-full min-h-0">
       {/* Scene list */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        <div className="flex justify-between items-center">
+        <div className="flex flex-wrap justify-between items-center gap-3">
           <div>
             <h2 className="text-xl font-semibold">ขั้น 3 – Scenes</h2>
-            {scenes.length > 0 && (
-              <p className="text-sm text-gray-500">{scenes.length} ฉาก · รวม {totalDur}s ({Math.round(totalDur / 60)} นาที)</p>
+            <p className="text-sm text-gray-600">1 ซีน = 1 คลิป · ซีนละไม่เกิน {DRAMA_MAX_CLIP_SECONDS} วินาที</p>
+            {validDuration && (
+              <p className="text-sm text-gray-600">เวลาที่กรอกต้องใช้อย่างน้อย {minimumDramaSceneCount(targetDurationSec)} ซีน</p>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 border rounded px-2 py-1.5 bg-white">
-              <span className="text-xs text-gray-500 shrink-0">เวลารวม:</span>
-              <input
-                type="number"
-                min={1}
-                placeholder="auto"
-                value={targetDuration}
-                onChange={e => setTargetDuration(e.target.value)}
-                className="w-16 text-sm text-center outline-none"
-              />
-              <span className="text-xs text-gray-400">นาที</span>
-            </div>
+          <form
+            className="flex flex-wrap items-end gap-2"
+            onSubmit={e => {
+              e.preventDefault()
+              if (validDuration && !isAnalyzing) runS2.mutate(targetDurationSec)
+            }}
+          >
+            <fieldset className="flex items-center gap-2" disabled={isAnalyzing}>
+              <legend className="mb-1 text-xs font-medium text-gray-600">เวลารวมเป้าหมาย</legend>
+              <label className="flex items-center gap-1 text-sm text-gray-600">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1}
+                  required
+                  value={duration.minutes}
+                  onChange={e => setTargetDuration({ ...duration, minutes: e.target.value })}
+                  className="w-16 rounded border bg-white px-2 py-1.5 text-center text-gray-900"
+                />
+                นาที
+              </label>
+              <label className="flex items-center gap-1 text-sm text-gray-600">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={59}
+                  step={1}
+                  required
+                  value={duration.seconds}
+                  onChange={e => setTargetDuration({ ...duration, seconds: e.target.value })}
+                  className="w-16 rounded border bg-white px-2 py-1.5 text-center text-gray-900"
+                />
+                วินาที
+              </label>
+            </fieldset>
             <button
-              onClick={() => runS2.mutate()}
-              disabled={runS2.isPending || !!jobId}
+              type="submit"
+              disabled={isAnalyzing || !validDuration}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
             >
-              {jobId ? '⏳ กำลังแบ่งฉาก…' : '🤖 แบ่งฉากอัตโนมัติ'}
+              {isAnalyzing ? '⏳ กำลังแบ่งฉาก…' : '🤖 แบ่งฉากอัตโนมัติ'}
             </button>
-          </div>
+          </form>
         </div>
 
-          <AiLoadingBanner job={streamJob} label="AI กำลังแบ่งฉาก" />
+        {!validDuration && (
+          <p role="status" className="text-sm text-red-700">กรอกนาทีเป็นจำนวนเต็มและวินาที 0–59 โดยเวลารวมต้องอย่างน้อย {DRAMA_MIN_CLIP_SECONDS} วินาที</p>
+        )}
+        <AiLoadingBanner job={streamJob} pending={runS2.isPending} label="AI กำลังแบ่งฉาก" />
+        {runS2.isError && <p role="alert" className="text-sm text-red-700">เริ่มงานไม่สำเร็จ กรุณาลองอีกครั้ง</p>}
+        {needsReplan && (
+          <p role="status" className="rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">
+            {DRAMA_REPLAN_MESSAGE}
+          </p>
+        )}
 
         {scenes.length === 0 && !jobId && (
           <div className="text-gray-500 text-sm bg-gray-50 rounded p-4">
-            กดปุ่มเพื่อให้ AI แบ่งฉากจากนิยาย
+            กรอกเวลารวมของตอน แล้วกดแบ่งฉากอัตโนมัติ
           </div>
         )}
 
         {isLoading && <div className="text-gray-400">กำลังโหลด…</div>}
+
+        {scenes.length > 0 && (
+          <p className="text-sm text-gray-600">
+            <span className="font-medium">ผลการแบ่งซีนที่บันทึกไว้</span>
+            {' · '}{scenes.length} ซีน · รวม {Math.floor(totalDur / 60)} นาที {totalDur % 60} วินาที
+          </p>
+        )}
 
         <div className="grid gap-3">
           {scenes.map(sc => (
@@ -238,7 +312,7 @@ export function ScenesStep({ episodeId, onSelectScene, onDone }: Props) {
           ))}
         </div>
 
-        {scenes.length > 0 && (
+        {scenes.length > 0 && !needsReplan && (
           <button onClick={onDone} className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700">
             ไปขั้น Shots ▶
           </button>
@@ -257,7 +331,8 @@ export function ScenesStep({ episodeId, onSelectScene, onDone }: Props) {
             <div className="flex gap-2">
               <button
                 onClick={() => onSelectScene(selectedScene._id)}
-                className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                disabled={needsReplan}
+                className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
               >
                 ดู Shots ▶
               </button>

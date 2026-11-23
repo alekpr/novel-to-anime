@@ -11,11 +11,13 @@ export interface EpisodeStepInfo {
 
 export interface EpisodeStatusResult {
   steps: EpisodeStepInfo[]
+  bible: { characterIds: string[]; locationIds: string[] }
   counts: {
     chars: number; charsApproved: number
     locs: number; locsApproved: number
     scenes: number; shots: number
     unreviewedDialogue: number; scenesWithClips: number
+    dialogueMissing: boolean; dialogueApproved: boolean
   }
 }
 
