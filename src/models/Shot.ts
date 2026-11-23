@@ -36,6 +36,7 @@ const shotSchema = new Schema({
   locationId: { type: Types.ObjectId, ref: "Location" },
   action: String,
   emotion: String,
+  propIds: [{ type: Types.ObjectId, ref: "PropObject" }],
   dialogue: [dialogueLineSchema],
   narration: { type: String, default: null },
   sfx: String,

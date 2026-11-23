@@ -4,8 +4,8 @@ import { AiLoadingBanner } from '../../components/AiLoadingBanner'
 import { BadgeSource } from '../../components/BadgeSource'
 import { JobProgressPanel } from '../../components/JobProgressPanel'
 import { useJobStream } from '../../hooks/useJobStream'
-import { charactersApi, episodesApi, factionsApi, locationsApi } from '../../lib/api'
-import type { Character, Faction, Location } from '../../lib/api'
+import { charactersApi, episodesApi, factionsApi, locationsApi, propsApi } from '../../lib/api'
+import type { Character, Faction, Location, PropObject } from '../../lib/api'
 
 interface Props {
   projectId: string
@@ -168,6 +168,54 @@ function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, 
   )
 }
 
+function PropCard({ prop, onApprove, onUpdate, onDelete }: {
+  prop: PropObject
+  onApprove: () => void
+  onUpdate: (data: Partial<PropObject>) => void
+  onDelete: () => void
+}) {
+  const [open, setOpen] = useState(prop.status !== 'approved')
+  const categoryColors: Record<string, string> = {
+    weapon: 'bg-red-100 text-red-700',
+    artifact: 'bg-purple-100 text-purple-700',
+    clothing: 'bg-pink-100 text-pink-700',
+    document: 'bg-yellow-100 text-yellow-700',
+    container: 'bg-orange-100 text-orange-700',
+    tool: 'bg-blue-100 text-blue-700',
+    food: 'bg-green-100 text-green-700',
+    vehicle: 'bg-cyan-100 text-cyan-700',
+    other: 'bg-gray-100 text-gray-600',
+  }
+  return (
+    <div className={`border rounded-lg overflow-hidden ${prop.status === 'approved' ? 'border-green-300' : ''}`}>
+      <div className="flex justify-between items-center px-4 py-3 bg-white">
+        <button onClick={() => setOpen(o => !o)} className="flex items-center gap-2 flex-1 text-left">
+          <span className="font-semibold">{prop.name}</span>
+          {prop.aliases.length > 0 && <span className="text-xs text-gray-400">({prop.aliases.join(', ')})</span>}
+          <span className={`text-xs px-1.5 py-0.5 rounded ${categoryColors[prop.category] ?? categoryColors.other}`}>{prop.category}</span>
+          {prop.episodes.length > 0 && <span className="text-xs text-gray-400">EP {prop.episodes.sort((a,b)=>a-b).join(', ')}</span>}
+          <span className="text-gray-300 text-xs ml-1">{open ? '▲' : '▼'}</span>
+        </button>
+        {prop.status === 'approved'
+          ? <span className="text-green-600 text-sm shrink-0">✔ อนุมัติแล้ว</span>
+          : <div className="flex gap-1 shrink-0">
+              <button onClick={onApprove} className="text-sm px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">อนุมัติ</button>
+              <button onClick={() => { if (confirm(`ลบ "${prop.name}"?`)) onDelete() }}
+                className="text-sm px-2 py-1 text-red-500 border border-red-200 rounded hover:bg-red-50">✕</button>
+            </div>
+        }
+      </div>
+      {open && (
+        <div className="px-4 pb-4 pt-2 border-t bg-gray-50 space-y-2">
+          <EditableField label="description" value={prop.description} onSave={v => onUpdate({ description: v })} />
+          <EditableField label="visualPrompt" value={prop.visualPrompt} onSave={v => onUpdate({ visualPrompt: v })} />
+          <EditableField label="significance" value={prop.significance} onSave={v => onUpdate({ significance: v })} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function LocCard({ loc, onApprove, onUpdate }: {
   loc: Location
   onApprove: () => void
@@ -264,7 +312,7 @@ function AddFactionModal({ onClose, onSave }: { onClose: () => void; onSave: (f:
 
 export function BibleStep({ projectId, episodeId, onDone }: Props) {
   const qc = useQueryClient()
-  const [tab, setTab] = useState<'chars' | 'locs' | 'factions'>('chars')
+  const [tab, setTab] = useState<'chars' | 'locs' | 'factions' | 'props'>('chars')
   const [showAll, setShowAll] = useState(false)
   const [showAddFaction, setShowAddFaction] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
@@ -289,6 +337,10 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
     queryKey: ['factions', projectId],
     queryFn: () => factionsApi.list(projectId),
   })
+  const { data: props = [] } = useQuery({
+    queryKey: ['props', projectId],
+    queryFn: () => propsApi.list(projectId),
+  })
 
   const chars = showAll || !currentEp ? allChars : allChars.filter(c => c.episodes?.includes(currentEp))
   const locs = showAll || !currentEp ? allLocs : allLocs.filter(l => l.episodes?.includes(currentEp))
@@ -300,11 +352,12 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
 
   useEffect(() => {
     if (streamJob?.status === 'succeeded' && jobIdRef.current) {
+      jobIdRef.current = null
       qc.invalidateQueries({ queryKey: ['characters', projectId] })
       qc.invalidateQueries({ queryKey: ['locations', projectId] })
       qc.invalidateQueries({ queryKey: ['factions', projectId] })
-      jobIdRef.current = null
-      setJobId(null)
+      qc.invalidateQueries({ queryKey: ['props', projectId] })
+      setTimeout(() => setJobId(null), 1500)
     }
   }, [streamJob?.status, projectId, qc])
 
@@ -351,6 +404,18 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
   const deleteFaction = useMutation({
     mutationFn: (name: string) => factionsApi.delete(projectId, name),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['factions', projectId] }),
+  })
+  const approveProp = useMutation({
+    mutationFn: (id: string) => propsApi.approve(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['props', projectId] }),
+  })
+  const updateProp = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<PropObject> }) => propsApi.update(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['props', projectId] }),
+  })
+  const deleteProp = useMutation({
+    mutationFn: (id: string) => propsApi.delete(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['props', projectId] }),
   })
 
   const needsReviewChars = chars.filter(c => (c as any).needsReview)
@@ -406,11 +471,11 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
       {(chars.length > 0 || locs.length > 0) && (
         <>
           <div className="flex gap-2 border-b">
-            {(['chars', 'locs', 'factions'] as const).map(t => (
+            {(['chars', 'locs', 'factions', 'props'] as const).map(t => (
               <button key={t} onClick={() => setTab(t)}
                 className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors
                   ${tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                {t === 'chars' ? `ตัวละคร (${chars.length}${showAll ? '' : `/${allChars.length}`})` : t === 'locs' ? `สถานที่ (${locs.length}${showAll ? '' : `/${allLocs.length}`})` : `กลุ่ม/ชุด (${factions.length})`}
+                {t === 'chars' ? `ตัวละคร (${chars.length}${showAll ? '' : `/${allChars.length}`})` : t === 'locs' ? `สถานที่ (${locs.length}${showAll ? '' : `/${allLocs.length}`})` : t === 'factions' ? `กลุ่ม/ชุด (${factions.length})` : `สิ่งของ (${props.length})`}
               </button>
             ))}
           </div>
@@ -458,6 +523,17 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
                   ))
                 }
               </>
+            )}
+            {tab === 'props' && (
+              props.length === 0
+                ? <div className="text-gray-400 text-sm">ยังไม่มีสิ่งของ — ให้ AI วิเคราะห์เพื่อสกัด props จากนิยาย</div>
+                : props.map(p => (
+                  <PropCard key={p._id} prop={p}
+                    onApprove={() => approveProp.mutate(p._id)}
+                    onUpdate={(data) => updateProp.mutate({ id: p._id, data })}
+                    onDelete={() => deleteProp.mutate(p._id)}
+                  />
+                ))
             )}
           </div>
 

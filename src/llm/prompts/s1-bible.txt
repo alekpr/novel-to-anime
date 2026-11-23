@@ -46,6 +46,34 @@ If a character belongs to a faction, their outfit should reference the faction's
 
 **needsReview** — set true only if you genuinely cannot determine if this is a new character or an existing one from the Bible
 
+## Existing Characters — Outfit Update Rules
+
+If a character already exists in the Bible (listed under "Existing characters"):
+- **Still include them in the output** if they appear in this episode wearing a **new outfit not previously recorded**
+- Only include the new outfit(s) in their `outfits` array — do not repeat outfits already known
+- Set `needsReview: false` for these updates
+- Example: นก already exists but this episode shows her in a nurse uniform → include นก with outfit `{ name: "ชุดพยาบาล", ... }`
+- If the character appears but wears no new outfit, **omit them** from the output entirely
+
+## Props / Objects Extraction Rules
+
+Extract **significant props** — objects that:
+- Appear in multiple scenes OR are plot-critical (weapons, artifacts, key items)
+- Have a distinct visual appearance that must stay consistent across shots
+- Are held/used by a specific character OR are part of a location's key elements
+
+**Do NOT extract:** generic background items (tables, chairs, cups) unless they are plot-relevant.
+
+For each prop:
+- **name**: ชื่อสิ่งของ (Thai)
+- **aliases**: ชื่ออื่นที่ใช้เรียก
+- **category**: weapon / artifact / clothing / document / container / tool / food / vehicle / other
+- **description**: บรรยายลักษณะภาษาไทย — วัสดุ สี ขนาด รูปทรง สภาพ
+- **visualPrompt**: English prompt for image/video generation — `"[material] [color] [shape] [size] [condition], [any distinctive markings or glow effects]"`
+  Example: `"ancient iron sword with cracked blade, faint blue runes etched along the fuller, worn leather grip, dim glow"`
+- **significance**: บทบาทของสิ่งของในเรื่อง (Thai) — ใครเป็นเจ้าของ ใช้ทำอะไร สำคัญอย่างไร
+- **ownedByNames**: ชื่อตัวละครที่ครอบครองหรือใช้สิ่งของนี้
+
 ## Location Extraction Rules
 
 - locationBlock: English, e.g. `"ancient stone cave exterior, mountain setting, dim natural light"`

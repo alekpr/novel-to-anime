@@ -174,9 +174,9 @@ export function ScenesStep({ episodeId, onSelectScene, onDone }: Props) {
 
   useEffect(() => {
     if (streamJob?.status === 'succeeded' && jobIdRef.current) {
-      qc.invalidateQueries({ queryKey: ['scenes', episodeId] })
       jobIdRef.current = null
-      setJobId(null)
+      qc.invalidateQueries({ queryKey: ['scenes', episodeId] })
+      setTimeout(() => setJobId(null), 1500)
     }
   }, [streamJob?.status, episodeId, qc])
 

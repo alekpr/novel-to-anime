@@ -78,6 +78,19 @@ export const LLMLocation = z.object({
   needsReview: z.boolean().default(false),
 });
 
+export const LLMPropObject = z.object({
+  name: z.string(),
+  aliases: z.array(z.string()).default([]),
+  category: z.string().transform(v => {
+    const valid = ["weapon","artifact","clothing","document","container","tool","food","vehicle","other"];
+    return valid.includes(v) ? v : "other";
+  }).pipe(z.enum(["weapon","artifact","clothing","document","container","tool","food","vehicle","other"])).catch("other"),
+  description: z.string().default(""),
+  visualPrompt: z.string().default(""),
+  significance: z.string().default(""),
+  ownedByNames: z.array(z.string()).default([]),
+});
+
 export const BibleExtractionResult = z.object({
   characters: z.array(LLMCharacter),
   locations: z.array(LLMLocation),
@@ -87,12 +100,14 @@ export const BibleExtractionResult = z.object({
     costumeDescription: z.string().default(""),
     costumePrompt: z.string().default(""),
   })).default([]),
+  props: z.array(LLMPropObject).default([]),
   episodeSummary: z.string().default(""),
 });
 
 export type BibleExtractionResultType = z.infer<typeof BibleExtractionResult>;
 export type LLMCharacterType = z.infer<typeof LLMCharacter>;
 export type LLMLocationType = z.infer<typeof LLMLocation>;
+export type LLMPropObjectType = z.infer<typeof LLMPropObject>;
 
 // ---- S2: Scene Breakdown ----
 
@@ -136,6 +151,7 @@ export const LLMShot = z.object({
   durationSec: z.number().min(1).max(20).default(4),
   breakQuality: z.string().transform((v) => (["hard", "soft", "avoid"].includes(v) ? v : "soft")).pipe(z.enum(["hard", "soft", "avoid"])).catch("soft"),
   characterNames: z.array(z.string()).catch([]),
+  propNames: z.array(z.string()).default([]),
   action: z.union([z.string(), z.null()]).transform(v => v ?? "").pipe(z.string()).catch(""),
   emotion: z.union([z.string(), z.null()]).transform(v => v ?? "").pipe(z.string()).catch(""),
   dialogue: z.array(LLMDialogueLine).default([]),
@@ -170,6 +186,7 @@ export const ShotDraft = z.object({
   description: z.string(),
   dialogue: z.array(DialogueLine4a).max(4).default([]),
   charactersInShot: z.array(z.string()),
+  propsInShot: z.array(z.string()).default([]),
 });
 
 export const SceneVideoPromptDraft = z.object({

@@ -52,7 +52,7 @@ Specify: **quality + color temperature + key direction**
 
 Write 2–3 sentences per shot covering:
 1. Subject positions and body language using `{{char:ID}}` / `{{loc:ID}}` tokens
-2. Key visual details: clothing, props, environment elements that reinforce mood
+2. Key visual details: clothing, **props** (use `{{prop:NAME}}` token for Bible props), environment elements that reinforce mood
 3. Emotional atmosphere matching the shot's emotion
 
 - DO NOT include dialogue text in description

@@ -23,7 +23,7 @@ export async function jobRoutes(app: FastifyInstance) {
     const poll = setInterval(async () => {
       const job = await Job.findById(id).lean();
       if (!job) { clearInterval(poll); reply.raw.end(); return; }
-      send({ status: job.status, progress: job.progress, error: job.error });
+      send({ _id: job._id, stage: job.stage, projectId: job.projectId, status: job.status, progress: job.progress, statusMessage: job.statusMessage ?? null, error: job.error, createdAt: job.createdAt });
       if (job.status === "succeeded" || job.status === "failed") {
         clearInterval(poll);
         reply.raw.end();

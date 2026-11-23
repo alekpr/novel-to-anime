@@ -11,12 +11,12 @@ import { splitIntoClips, type ShotForSplit } from "../services/clipSplitter.js";
 // ---- Types ----
 
 export type SubjectDef = {
-  index: number;                          // 1-based
-  role: "location" | "character";
+  index: number;
+  role: "location" | "character" | "prop";
   entityId: string;
-  block: string;                          // appearanceBlock / locationBlock
-  pictureRef?: number;                    // <Picture N> index
-  speakerIndex?: number;                  // (S#) 1-based, เรียงตามลำดับที่พูดใน clip
+  block: string;
+  pictureRef?: number;
+  speakerIndex?: number;
 };
 
 export type ClipContext = {
@@ -34,11 +34,8 @@ export type DYAssembleInput = {
   locationId: string;
   locationBlock: string;
   locationName: string;
-  characters: Array<{
-    id: string;
-    appearanceBlock: string;
-    name: string;
-  }>;
+  characters: Array<{ id: string; appearanceBlock: string; name: string }>;
+  props: Array<{ name: string; visualPrompt: string }>;
   referencePictures: Array<{ index: number; description: string }>;
   dialogueLanguage: string;
   clipPolicy: { maxClipSec: number; targetClipSec: number; minClipSec: number };
@@ -53,8 +50,8 @@ export type DYAssembleResult = {
 // ---- Main assembler ----
 
 export function assembleDY(input: DYAssembleInput): DYAssembleResult {
-  const { draft, locationBlock, locationName, characters, referencePictures,
-    dialogueLanguage, clipPolicy, promptPrefix = "DY" } = input;
+  const { draft, locationBlock, locationName, characters, props,
+    referencePictures, dialogueLanguage, clipPolicy, promptPrefix = "DY" } = input;
 
   // แปลง shots เป็น ShotForSplit
   const shotsForSplit: ShotForSplit[] = draft.shots.map((sh, i) => ({
@@ -83,7 +80,7 @@ export function assembleDY(input: DYAssembleInput): DYAssembleResult {
       .map((id) => characters.find((c) => c.id === id))
       .filter((c): c is NonNullable<typeof c> => c !== undefined);
 
-    // สร้าง subject list: Subject 1 = location, ถัดไป = characters
+    // สร้าง subject list: Subject 1 = location, ถัดไป = characters, ถัดไป = props
     const subjects: SubjectDef[] = [
       {
         index: 1,
@@ -100,6 +97,21 @@ export function assembleDY(input: DYAssembleInput): DYAssembleResult {
         pictureRef: referencePictures.length > 1 ? 2 : (referencePictures.length > 0 ? 1 : undefined),
       })),
     ];
+
+    // เพิ่ม props ที่ปรากฏใน clip นี้
+    const propNamesInClip = [...new Set(clipShots.flatMap(sh => sh.propsInShot ?? []))];
+    const propsInClip = propNamesInClip
+      .map(name => props.find(p => p.name === name))
+      .filter((p): p is NonNullable<typeof p> => p !== undefined);
+    const charSubjectCount = charsInClip.length;
+    propsInClip.forEach((p, i) => {
+      subjects.push({
+        index: charSubjectCount + 2 + i,
+        role: "prop",
+        entityId: p.name,
+        block: p.visualPrompt,
+      });
+    });
 
     // สร้าง speaker index map (เรียงตามลำดับที่พูดครั้งแรกใน clip)
     const speakerOrder = getSpeakerOrder(clipShots);
@@ -148,6 +160,8 @@ function buildDYPrompt(
     if (subj.role === "location") {
       const picRef = subj.pictureRef ? ` in <Picture ${subj.pictureRef}>` : "";
       lines.push(`<Subject ${subj.index}> is the ${locationName} environment${picRef}, ${subj.block}.`);
+    } else if (subj.role === "prop") {
+      lines.push(`<Subject ${subj.index}> is the prop "${subj.entityId}": ${subj.block}.`);
     } else {
       const picRef = subj.pictureRef
         ? ` shown in <Picture 1> and in the ${subj.index === 2 ? "left" : "right"} close-up of <Picture ${subj.pictureRef}>`
@@ -278,8 +292,10 @@ function getSpeakerOrder(shots: ShotDraftType[]): string[] {
 }
 
 function resolveTokens(text: string, subjects: SubjectDef[]): string {
-  return text.replace(/\{\{(char|loc):([^}]+)\}\}/g, (_match, _type, id) => {
-    const subj = subjects.find((s) => s.entityId === id);
+  return text.replace(/\{\{(char|loc|prop):([^}]+)\}\}/g, (_match, type, id) => {
+    const subj = type === "prop"
+      ? subjects.find(s => s.role === "prop" && s.entityId === id)
+      : subjects.find(s => s.entityId === id);
     return subj ? `<Subject ${subj.index}>` : `[unknown:${id}]`;
   });
 }

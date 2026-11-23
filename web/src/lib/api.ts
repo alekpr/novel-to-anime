@@ -32,6 +32,20 @@ export interface Character {
   voice?: { gender?: string; pitch?: string; voicePrompt?: string }
 }
 
+export interface PropObject {
+  _id: string
+  projectId: string
+  name: string
+  aliases: string[]
+  category: 'weapon' | 'artifact' | 'clothing' | 'document' | 'container' | 'tool' | 'food' | 'vehicle' | 'other'
+  description: string
+  visualPrompt: string
+  significance: string
+  ownedBy: string[]
+  episodes: number[]
+  status: 'draft' | 'approved'
+}
+
 export interface Faction {
   name: string
   description: string
@@ -132,6 +146,14 @@ export const factionsApi = {
     api.delete<Faction[]>(`/projects/${projectId}/factions/${encodeURIComponent(name)}`).then(r => r.data),
 }
 
+// Props
+export const propsApi = {
+  list: (projectId: string) => api.get<PropObject[]>(`/projects/${projectId}/props`).then(r => r.data),
+  update: (id: string, data: Partial<PropObject>) => api.patch<PropObject>(`/props/${id}`, data).then(r => r.data),
+  approve: (id: string) => api.post<PropObject>(`/props/${id}/approve`).then(r => r.data),
+  delete: (id: string) => api.delete(`/props/${id}`).then(r => r.data),
+}
+
 // Locations
 export const locationsApi = {
   list: (projectId: string) => api.get<Location[]>(`/projects/${projectId}/locations`).then(r => r.data),
@@ -171,6 +193,26 @@ export const promptsApi = {
     api.post(`/episodes/${episodeId}/generate-all-prompts`).then(r => r.data),
   getClips: (sceneId: string) =>
     api.get(`/scenes/${sceneId}/clips`).then(r => r.data),
+}
+
+// Optimize (S7)
+export interface OptimizeResult {
+  analysisReport: string
+  mappingTable: string
+  timingReport: string
+  optimizedClips: string[]
+  elevenLabsScript: string
+  bgmSpec: string
+  validationReport: string
+  raw: string
+}
+
+export const optimizeApi = {
+  getScene: (sceneId: string) => api.get<OptimizeResult | null>(`/scenes/${sceneId}/optimized`).then(r => r.data),
+  optimizeScene: (sceneId: string, maxClipSec?: number, imageRefFormat?: '@Image' | '<Picture>') =>
+    api.post<OptimizeResult>(`/scenes/${sceneId}/optimize`, { maxClipSec, imageRefFormat }).then(r => r.data),
+  getEpisode: (episodeId: string) =>
+    api.get<Array<{ _id: string; sceneCode: string; title: string; hasOptimized: boolean; clipCount: number; optimizedClips: OptimizeResult | null }>>(`/episodes/${episodeId}/optimized`).then(r => r.data),
 }
 
 export default api

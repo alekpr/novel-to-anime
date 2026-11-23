@@ -5,6 +5,7 @@ import { Character } from "../models/Character.js";
 import { Episode } from "../models/Episode.js";
 import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
+import { PropObject } from "../models/PropObject.js";
 import { Job } from "../models/Job.js";
 import { queues } from "../queues/jobRunner.js";
 import { config } from "../config/index.js";
@@ -51,12 +52,19 @@ export async function buildShotsForScene(
   const charNameField = useGemini ? `"characterNames": ["CHAR_1"]` : `"characterNames": ["ชื่อตัวละคร"]`;
   const speakerField = useGemini ? `"speakerName": "CHAR_1"` : `"speakerName": "ชื่อตัวละคร"`;
 
+  // ดึง props ของ project
+  const sceneProps = await PropObject.find({ projectId: scene.projectId }, { name: 1 }).lean() as unknown as Array<{ name: string }>;
+  const propContext = sceneProps.length > 0 ? sceneProps.map(p => `- ${p.name}`).join("\n") : "(none)";
+
   const userPrompt = `
 ## Scene: ${scene.sceneCode}
 TimeOfDay: ${scene.timeOfDay ?? ""} | Mood: ${scene.mood ?? ""} | Total duration: ${scene.estDurationSec ?? 30}s (~${Math.round(Number(scene.estDurationSec ?? 30) / 5)} shots)
 
 ## Characters in this scene
 ${charContext || "(none)"}
+
+## Props from Bible (use exact names in propNames field)
+${propContext}
 
 ## Previous summary
 ${prevSummary || "(start of EP)"}
@@ -75,6 +83,7 @@ ${sceneText}
       "durationSec": 4,
       "breakQuality": "hard",
       ${charNameField},
+      "propNames": [],
       "action": "บรรยายการกระทำภาษาไทย",
       "emotion": "อารมณ์ภาษาไทย",
       "dialogue": [{ ${speakerField}, "lineTh": "บทพูดภาษาไทย", "tone": "tone in English", "source": "original" }],
@@ -112,6 +121,11 @@ ${sceneText}
       .map(ref => charMap.get(charReverseMap.get(ref) ?? ref)?._id)
       .filter(Boolean);
 
+    // resolve propNames → propIds
+    const propIds = sh.propNames?.length
+      ? (await PropObject.find({ projectId: scene.projectId, name: { $in: sh.propNames } }, { _id: 1 }).lean()).map(p => p._id)
+      : [];
+
     // replace CHAR_N ที่อาจค้างอยู่ใน text fields (Gemini เท่านั้น)
     const replaceChar = (text: string) => {
       if (!useGemini) return text;
@@ -141,6 +155,7 @@ ${sceneText}
           durationSec: sh.durationSec,
           breakQuality: sh.breakQuality,
           characterIds,
+          propIds,
           locationId: scene.locationId,
           action: replaceChar(sh.action),
           emotion: replaceChar(sh.emotion),
