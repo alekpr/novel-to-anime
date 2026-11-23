@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { optimizeApi, scenesApi } from '../../lib/api'
+import { optimizeApi, promptsApi, scenesApi } from '../../lib/api'
 import type { OptimizeResult, Scene } from '../../lib/api'
 
 interface Props { episodeId: string }
+interface Clip { clipCode: string; durationSec: number; videoPrompt: string; promptVersion: number }
+
+// ---- Shared UI ----
 
 function CopyButton({ text, label = 'copy' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
@@ -35,7 +38,83 @@ function DownloadButton({ text, filename }: { text: string; filename: string }) 
   )
 }
 
-function Section({ title, content, mono = false, badge, filename }: { title: string; content: string; mono?: boolean; badge?: string; filename?: string }) {
+// ---- Tab 1: DY Prompts Viewer (ทีม) ----
+
+function SceneVideoPanel({ scene }: { scene: Scene }) {
+  const [open, setOpen] = useState(false)
+  const { data: sceneDetail } = useQuery({
+    queryKey: ['scene-clips', scene._id],
+    queryFn: () => promptsApi.getClips(scene._id),
+    enabled: open,
+  })
+
+  const clips: Clip[] = sceneDetail?.clips ?? []
+  const hasPrompts = clips.some(c => c.videoPrompt)
+  const allPrompts = clips.map(c => c.videoPrompt).filter(Boolean).join('\n\n---\n\n')
+  const sceneCode = (scene as any).sceneCode ?? scene._id
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <button onClick={() => setOpen(o => !o)}
+        className="w-full flex justify-between items-center px-4 py-3 bg-white hover:bg-gray-50 text-left">
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs text-gray-400">{sceneCode}</span>
+          <span className="font-medium">{scene.title}</span>
+          <span className="text-xs text-gray-400">{scene.estDurationSec}s</span>
+          {hasPrompts && (
+            <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">✔ {clips.length} clips</span>
+          )}
+        </div>
+        <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="border-t bg-gray-50 px-4 pb-4 pt-3 space-y-4">
+          {clips.length === 0 && (
+            <div className="text-sm text-gray-400">ยังไม่มี clips — ไปขั้น 6 เพื่อสร้าง prompt ก่อน</div>
+          )}
+          {clips.length > 0 && (
+            <div className="flex justify-end gap-2">
+              <DownloadButton text={allPrompts} filename={`${sceneCode}-ALL.md`} />
+              <CopyButton text={allPrompts} label={`copy ทั้ง ${clips.length} clips`} />
+            </div>
+          )}
+          {clips.map((clip, i) => (
+            <div key={clip.clipCode} className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm font-medium">{clip.clipCode}</span>
+                <span className="text-xs text-gray-500">{clip.durationSec}s</span>
+                <span className="text-xs text-gray-400">Clip {i + 1}/{clips.length}</span>
+                <span className="text-xs text-gray-400 ml-auto">v{clip.promptVersion}</span>
+              </div>
+              {clip.videoPrompt ? (
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-gray-500">DY Prompt</span>
+                    <div className="flex gap-1">
+                      <DownloadButton text={clip.videoPrompt} filename={`${clip.clipCode}.md`} />
+                      <CopyButton text={clip.videoPrompt} />
+                    </div>
+                  </div>
+                  <pre className="text-xs bg-white border rounded p-3 whitespace-pre-wrap font-mono leading-relaxed overflow-x-auto max-h-80">
+                    {clip.videoPrompt}
+                  </pre>
+                </div>
+              ) : (
+                <div className="text-xs text-gray-400 bg-white border rounded p-3">ยังไม่มี prompt</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---- Tab 2: H3 Optimizer (คุณ) ----
+
+function Section({ title, content, mono = false, badge, filename }: {
+  title: string; content: string; mono?: boolean; badge?: string; filename?: string
+}) {
   const [open, setOpen] = useState(false)
   if (!content) return null
   return (
@@ -65,8 +144,6 @@ function Section({ title, content, mono = false, badge, filename }: { title: str
 
 function ResultSections({ result, sceneCode }: { result: OptimizeResult; sceneCode: string }) {
   const parseFailed = !result.analysisReport && result.optimizedClips.every(c => !c)
-  // derive clip code prefix: EP03-S01 → EP03-S01-C
-  const clipPrefix = sceneCode  // e.g. EP03-S01
   if (parseFailed) {
     return (
       <div className="space-y-2">
@@ -89,7 +166,7 @@ function ResultSections({ result, sceneCode }: { result: OptimizeResult; sceneCo
           content={clip}
           mono
           badge={`Clip ${i + 1}`}
-          filename={`${clipPrefix}-C${String(i + 1).padStart(2, '0')}.md`}
+          filename={`${sceneCode}-C${String(i + 1).padStart(2, '0')}.md`}
         />
       ))}
       {result.elevenLabsScript && (
@@ -101,9 +178,12 @@ function ResultSections({ result, sceneCode }: { result: OptimizeResult; sceneCo
   )
 }
 
-function OptimizedPanel({ scene, maxClipSec, imageRefFormat }: { scene: Scene; maxClipSec: number | null; imageRefFormat: '@Image' | '<Picture>' }) {
+function OptimizedPanel({ scene, maxClipSec, imageRefFormat }: {
+  scene: Scene; maxClipSec: number | null; imageRefFormat: '@Image' | '<Picture>'
+}) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
+  const sceneCode = (scene as any).sceneCode ?? scene._id
 
   const { data: cached } = useQuery({
     queryKey: ['optimized', scene._id],
@@ -116,12 +196,9 @@ function OptimizedPanel({ scene, maxClipSec, imageRefFormat }: { scene: Scene; m
 
   const optimize = useMutation({
     mutationFn: () => optimizeApi.optimizeScene(scene._id, maxClipSec ?? undefined, imageRefFormat),
-    onSuccess: (data) => {
-      qc.setQueryData(['optimized', scene._id], data)
-    },
+    onSuccess: (data) => { qc.setQueryData(['optimized', scene._id], data) },
   })
 
-  // prefer fresh mutation result, fall back to cached GET
   const result: OptimizeResult | null = optimize.data ?? cached ?? null
   const hasClips = (scene as any).clips?.length > 0 || (scene as any).shotCount > 0
 
@@ -130,7 +207,7 @@ function OptimizedPanel({ scene, maxClipSec, imageRefFormat }: { scene: Scene; m
       <button onClick={() => setOpen(o => !o)}
         className="w-full flex justify-between items-center px-4 py-3 bg-white hover:bg-gray-50 text-left">
         <div className="flex items-center gap-3">
-          <span className="font-mono text-xs text-gray-400">{(scene as any).sceneCode}</span>
+          <span className="font-mono text-xs text-gray-400">{sceneCode}</span>
           <span className="font-medium">{scene.title}</span>
           <span className="text-xs text-gray-400">{scene.estDurationSec}s</span>
           {result && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">✔ optimized</span>}
@@ -138,7 +215,6 @@ function OptimizedPanel({ scene, maxClipSec, imageRefFormat }: { scene: Scene; m
         </div>
         <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
       </button>
-
       {open && (
         <div className="border-t bg-gray-50 px-4 pb-4 pt-3 space-y-3">
           <div className="flex items-center gap-2">
@@ -161,15 +237,17 @@ function OptimizedPanel({ scene, maxClipSec, imageRefFormat }: { scene: Scene; m
               </span>
             )}
           </div>
-
-          {result && <ResultSections result={result} sceneCode={(scene as any).sceneCode ?? scene._id} />}
+          {result && <ResultSections result={result} sceneCode={sceneCode} />}
         </div>
       )}
     </div>
   )
 }
 
+// ---- Main Step ----
+
 export function VideoPromptsStep({ episodeId }: Props) {
+  const [tab, setTab] = useState<'dy' | 'optimizer'>('dy')
   const [maxClipSec, setMaxClipSec] = useState<string>('')
   const [imageRefFormat, setImageRefFormat] = useState<'@Image' | '<Picture>'>('@Image')
   const qc = useQueryClient()
@@ -195,79 +273,120 @@ export function VideoPromptsStep({ episodeId }: Props) {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-4">
-      <div className="flex justify-between items-start gap-4">
-        <div>
-          <h2 className="text-xl font-semibold">ขั้น 7 – H3 Prompt Optimizer</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            วิเคราะห์และ optimize DY prompt จาก Step 6 ตาม MiniMax H3 Validation Rules
-            — แยก BGM, สร้าง ElevenLabs script, ตรวจ dialogue timing
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1 border rounded px-2 py-1.5 bg-white text-xs">
-            <span className="text-gray-500 mr-1">image ref:</span>
-            {(['@Image', '<Picture>'] as const).map(fmt => (
-              <button
-                key={fmt}
-                onClick={() => setImageRefFormat(fmt)}
-                className={`px-2 py-0.5 rounded font-mono ${
-                  imageRefFormat === fmt
-                    ? 'bg-purple-600 text-white'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                {fmt === '@Image' ? '@Image N' : '<Picture N>'}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-1.5 border rounded px-2 py-1.5 bg-white">
-            <span className="text-xs text-gray-500">max clip:</span>
-            <input
-              type="number" min={1} max={60}
-              placeholder="auto"
-              value={maxClipSec}
-              onChange={e => setMaxClipSec(e.target.value)}
-              className="w-14 text-sm text-center outline-none"
-            />
-            <span className="text-xs text-gray-400">วิ</span>
-          </div>
-          <button
-            onClick={() => optimizeAll.mutate()}
-            disabled={optimizeAll.isPending || scenesWithClips.length === 0}
-            className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-40 text-sm flex items-center gap-2"
-          >
-            {optimizeAll.isPending && (
-              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-              </svg>
-            )}
-            {optimizeAll.isPending ? 'กำลัง optimize…' : 'Optimize ทั้งหมด'}
-          </button>
-        </div>
+      {/* Header */}
+      <div>
+        <h2 className="text-xl font-semibold">ขั้น 7 – Video Prompts</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          ดู DY prompt ต่อ clip และ optimize ด้วย H3 Validation Rules
+        </p>
       </div>
 
-      {scenes.length > 0 && (
-        <div className="text-xs text-gray-400">
-          {scenesWithClips.length}/{scenes.length} scenes มี clips พร้อม optimize
-        </div>
-      )}
-
-      {isLoading && <div className="text-gray-400">กำลังโหลด…</div>}
-      {!isLoading && scenes.length === 0 && (
-        <div className="text-gray-400 text-sm bg-gray-50 rounded p-4">ยังไม่มี scenes — รัน Scene Breakdown ก่อน</div>
-      )}
-
-      <div className="space-y-3">
-        {scenes.map(sc => (
-          <OptimizedPanel
-            key={sc._id}
-            scene={sc}
-            maxClipSec={maxClipSec ? Number(maxClipSec) : null}
-            imageRefFormat={imageRefFormat}
-          />
+      {/* Tabs */}
+      <div className="flex gap-1 border-b">
+        {([
+          { key: 'dy', label: 'DY Prompts' },
+          { key: 'optimizer', label: 'H3 Optimizer' },
+        ] as const).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === t.key
+                ? 'border-purple-600 text-purple-700'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t.label}
+          </button>
         ))}
       </div>
+
+      {/* Tab: DY Prompts */}
+      {tab === 'dy' && (
+        <div className="space-y-3">
+          {isLoading && <div className="text-gray-400">กำลังโหลด…</div>}
+          {!isLoading && scenes.length === 0 && (
+            <div className="text-gray-400 text-sm bg-gray-50 rounded p-4">ยังไม่มี scenes — รัน Scene Breakdown ก่อน</div>
+          )}
+          {scenes.map(sc => <SceneVideoPanel key={sc._id} scene={sc} />)}
+        </div>
+      )}
+
+      {/* Tab: H3 Optimizer */}
+      {tab === 'optimizer' && (
+        <div className="space-y-4">
+          {/* Optimizer toolbar */}
+          <div className="flex justify-between items-center gap-4">
+            <p className="text-xs text-gray-500">
+              วิเคราะห์และ optimize DY prompt ตาม MiniMax H3 Validation Rules — แยก BGM, ElevenLabs script, ตรวจ dialogue timing
+            </p>
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1 border rounded px-2 py-1.5 bg-white text-xs">
+                <span className="text-gray-500 mr-1">image ref:</span>
+                {(['@Image', '<Picture>'] as const).map(fmt => (
+                  <button
+                    key={fmt}
+                    onClick={() => setImageRefFormat(fmt)}
+                    className={`px-2 py-0.5 rounded font-mono ${
+                      imageRefFormat === fmt
+                        ? 'bg-purple-600 text-white'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {fmt === '@Image' ? '@Image N' : '<Picture N>'}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 border rounded px-2 py-1.5 bg-white">
+                <span className="text-xs text-gray-500">max clip:</span>
+                <input
+                  type="number" min={1} max={60}
+                  placeholder="auto"
+                  value={maxClipSec}
+                  onChange={e => setMaxClipSec(e.target.value)}
+                  className="w-14 text-sm text-center outline-none"
+                />
+                <span className="text-xs text-gray-400">วิ</span>
+              </div>
+              <button
+                onClick={() => optimizeAll.mutate()}
+                disabled={optimizeAll.isPending || scenesWithClips.length === 0}
+                className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-40 text-sm flex items-center gap-2"
+              >
+                {optimizeAll.isPending && (
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                )}
+                {optimizeAll.isPending ? 'กำลัง optimize…' : 'Optimize ทั้งหมด'}
+              </button>
+            </div>
+          </div>
+
+          {scenes.length > 0 && (
+            <div className="text-xs text-gray-400">
+              {scenesWithClips.length}/{scenes.length} scenes มี clips พร้อม optimize
+            </div>
+          )}
+
+          {isLoading && <div className="text-gray-400">กำลังโหลด…</div>}
+          {!isLoading && scenes.length === 0 && (
+            <div className="text-gray-400 text-sm bg-gray-50 rounded p-4">ยังไม่มี scenes — รัน Scene Breakdown ก่อน</div>
+          )}
+
+          <div className="space-y-3">
+            {scenes.map(sc => (
+              <OptimizedPanel
+                key={sc._id}
+                scene={sc}
+                maxClipSec={maxClipSec ? Number(maxClipSec) : null}
+                imageRefFormat={imageRefFormat}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
