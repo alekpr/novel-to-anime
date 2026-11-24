@@ -11,6 +11,7 @@ import { Job } from "../models/Job.js";
 import { Project } from "../models/Project.js";
 import { DRAMA_EP_SECONDS, DRAMA_MIN_CLIP_SECONDS, DRAMA_MAX_CLIP_SECONDS, isDramaClipDuration, minimumDramaSceneCount } from "../utils/shortDrama.js";
 import { config } from "../config/index.js";
+import { DRAMA_CAMERA_ANGLES, distinctDramaAngles } from "../utils/dramaCamera.js";
 
 function replaceIndexes(text: string, charMap: Map<string, string>, locMap: Map<string, string>): string {
   return text.replace(/(?:CHAR|LOC)_\d+/g, token => charMap.get(token) ?? locMap.get(token) ?? token);
@@ -70,7 +71,7 @@ export async function runSceneBreakdown(
   const userPrompt = `
 ## Target EP duration
 ${shortDrama
-  ? `${targetEpDurationSec} วินาทีพอดี คำนวณได้อย่างน้อย ${minimumScenes} ซีน เลือกจำนวนจริงตามเนื้อเรื่อง หนึ่งซีนสร้างหนึ่งคลิป ให้ estDurationSec ของทุกซีนเป็นจำนวนเต็ม ${DRAMA_MIN_CLIP_SECONDS}–${DRAMA_MAX_CLIP_SECONDS} วินาที และผลรวมตรงกับเวลาของตอน ส่ง entry และ exit ทุกซีน พร้อม supportingLocations สำหรับสถานที่รองที่เห็นจากสถานที่หลัก และ wardrobe โดยใช้ชื่อชุดจากรายการเมื่อกำหนดได้`
+  ? `${targetEpDurationSec} วินาทีพอดี คำนวณได้อย่างน้อย ${minimumScenes} ซีน เลือกจำนวนจริงตามเนื้อเรื่อง หนึ่งซีนสร้างหนึ่งคลิป ให้ estDurationSec ของทุกซีนเป็นจำนวนเต็ม ${DRAMA_MIN_CLIP_SECONDS}–${DRAMA_MAX_CLIP_SECONDS} วินาที และผลรวมตรงกับเวลาของตอน ส่ง entry, exit, openingAngle, closingAngle และ dialogueBudgetSec ทุกซีน มุมใช้ ${DRAMA_CAMERA_ANGLES.join(", ")} พร้อม supportingLocations สำหรับสถานที่รองที่เห็นจากสถานที่หลัก และ wardrobe โดยใช้ชื่อชุดจากรายการเมื่อกำหนดได้`
   : `อย่างน้อย ${targetEpDurationSec} วินาที — รวม estDurationSec ทุก scene ต้องได้ถึงเป้าหมายนี้`}
 ${project?.genre ? `
 ## Drama genre
@@ -99,7 +100,7 @@ ${novelText}
       ${charField},
       "fromParagraph": 0,
       "toParagraph": 5,
-      "estDurationSec": ${shortDrama ? 12 : 45}${shortDrama ? ', "entry": "สภาพเปิด", "exit": "สภาพจบ", "dialoguePurpose": "บทพูดเปลี่ยนสถานการณ์อย่างไร หรือใส่สตริงว่างถ้าซีนใช้ภาพเล่า", "supportingLocations": [], "wardrobe": {}' : ""}
+      "estDurationSec": ${shortDrama ? 12 : 45}${shortDrama ? ', "entry": "สภาพเปิด", "exit": "สภาพจบ", "openingAngle": "side-profile", "closingAngle": "frontal", "dialoguePurpose": "ข้อมูลหรือการตัดสินใจเดียวที่คำพูดขยับ หรือสตริงว่างสำหรับซีนภาพล้วน", "dialogueBudgetSec": 3, "supportingLocations": [], "wardrobe": {}' : ""}
     }
   ]
 }
@@ -127,6 +128,17 @@ ${novelText}
         `The scene durations total ${duration} seconds. Adjust the scene budgets to total exactly ${targetEpDurationSec} seconds.` });
     }
     scenes.forEach((scene, index) => {
+      const previous = scenes[index - 1];
+      if (!scene.openingAngle || !scene.closingAngle ||
+          (previous?.closingAngle && !distinctDramaAngles(previous.closingAngle, scene.openingAngle))) {
+        ctx.addIssue({ code: "custom", path: ["scenes", index, "openingAngle"], message:
+          `Supply openingAngle and closingAngle. The opener must clearly differ from the previous closer (${previous?.closingAngle ?? "none"}). A closer crop, new lens or slight pivot is the same setup.` });
+      }
+      const budget = scene.dialogueBudgetSec;
+      if (budget === undefined || (scene.dialoguePurpose ? budget < 1 || budget > scene.estDurationSec : budget !== 0)) {
+        ctx.addIssue({ code: "custom", path: ["scenes", index, "dialogueBudgetSec"], message:
+          "Budget only the seconds needed for the essential spoken beat, from 1s to the scene duration, or 0 for a silent scene." });
+      }
       const locRef = scene.locationId || scene.locationName;
       const charRefs = scene.characterIds.length ? scene.characterIds : scene.characterNames;
       if (scene.dialoguePurpose && !charRefs.length) {
@@ -206,6 +218,9 @@ ${novelText}
         entry: replaceIndexes(s.entry, charReverseMap, locReverseMap),
         exit: replaceIndexes(s.exit, charReverseMap, locReverseMap),
         dialoguePurpose: replaceIndexes(s.dialoguePurpose, charReverseMap, locReverseMap),
+        dialogueBudgetSec: s.dialogueBudgetSec,
+        openingAngle: s.openingAngle,
+        closingAngle: s.closingAngle,
         clipDurationsSec: [s.estDurationSec],
         supportingLocationIds: [...new Set(s.supportingLocations.map(ref => locReverseMap.get(ref) ?? ref))]
           .filter(name => name !== locName).map(name => locMap.get(name)),

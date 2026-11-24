@@ -1,7 +1,11 @@
 import { FastifyInstance } from "fastify";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { config } from "../config/index.js";
+import { callStructured, LLMRequestError } from "../llm/client.js";
 import { readRunningHubSettings } from "../services/runningHub.service.js";
+
+const connectionCheck = z.object({ ok: z.literal(true) });
 
 export async function healthRoutes(app: FastifyInstance) {
   app.get("/health", async () => {
@@ -24,7 +28,6 @@ export async function healthRoutes(app: FastifyInstance) {
       llmModel: config.llm.model,
       llmBaseUrl: config.llm.baseUrl,
       llmKeySet: config.llm.apiKey.length > 0,
-      llmKeyPreview: config.llm.apiKey ? `${config.llm.apiKey.slice(0, 8)}…` : "",
       rhBaseUrl: config.rh.baseUrl,
       rhKeySet,
       rhKeyPreview: rhKeySet ? "บันทึกแล้ว" : "",
@@ -32,5 +35,24 @@ export async function healthRoutes(app: FastifyInstance) {
       maxConcurrentImage: config.rh.maxConcurrentImage,
       maxConcurrentVideo: config.rh.maxConcurrentVideo,
     };
+  });
+
+  app.post("/settings/llm/test", async (_req, reply) => {
+    try {
+      await callStructured({
+        system: "This is an API connection check. Return JSON only.",
+        user: 'Return exactly {"ok":true}.',
+        schema: connectionCheck,
+        maxTokens: 2048,
+        maxRetries: 0,
+      });
+      return { connected: true, model: config.llm.model };
+    } catch (error) {
+      if (error instanceof LLMRequestError) {
+        const message = error.status === 422 ? "โมเดลไม่ตอบผลทดสอบการเชื่อมต่อ" : error.message;
+        return reply.code(error.status === 429 ? 429 : 502).send({ error: message });
+      }
+      return reply.code(502).send({ error: "ทดสอบ AI ไม่สำเร็จ กรุณาตรวจการตั้งค่า API Key และโมเดล" });
+    }
   });
 }

@@ -7,8 +7,9 @@ import { JobProgressPanel } from '../../components/JobProgressPanel'
 import { SourceTextPane } from '../../components/SourceTextPane'
 import { useJobProgress } from '../../hooks/useJobProgress'
 import { useEpisodeStatus } from '../../hooks/useEpisodeStatus'
-import { episodesApi, scenesApi, shotsApi } from '../../lib/api'
-import { shotTimeline } from '../../../../src/utils/shortDrama'
+import { episodesApi, scenesApi, shotApprovalKey, shotsApi } from '../../lib/api'
+import { needsDramaVideoPrompt, shotTimeline } from '../../../../src/utils/shortDrama'
+import { DRAMA_CAMERA_LABELS } from '../../../../src/utils/dramaCamera'
 import type { Scene, Shot } from '../../lib/api'
 
 interface Props {
@@ -75,6 +76,7 @@ function ShotRow({ shot, onUpdated, range, disabled }: {
         className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left">
         <span className="text-xs font-mono text-gray-400 w-28 shrink-0">{shot.shotCode}</span>
         <span className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{shot.shotType}</span>
+        {shot.cameraAngle && <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-800">{DRAMA_CAMERA_LABELS[shot.cameraAngle]}</span>}
         <span className="text-xs text-gray-500 flex-1 truncate">{shot.action}</span>
         <span className="text-xs text-gray-400">{range ? `${range.start.toFixed(1)}–${range.end.toFixed(1)}s` : `${shot.durationSec}s`}</span>
         {unreviewed > 0 && (
@@ -163,8 +165,9 @@ export function ShotsStep({ episodeId, initialSceneId }: Props) {
     onSuccess: (_, sceneId) => refreshScene(sceneId),
   })
   const approveAll = useMutation({
+    mutationKey: shotApprovalKey(episodeId),
     mutationFn: (sceneId: string) => shotsApi.approveScene(sceneId),
-    onSuccess: (_, sceneId) => refreshScene(sceneId),
+    onSettled: (_, __, sceneId) => refreshScene(sceneId),
   })
 
   useEffect(() => {
@@ -193,6 +196,9 @@ export function ShotsStep({ episodeId, initialSceneId }: Props) {
   const ranges = shotTimeline(shots)
 
   const selectedScene = scenes.find((s: Scene) => s._id === selectedSceneId)
+  const needsPrompt = !!selectedScene && needsDramaVideoPrompt(selectedScene)
+  const approvalResult = approveAll.variables === selectedSceneId ? approveAll.data : undefined
+  const approvingScene = scenes.find(scene => scene._id === approveAll.variables)
   const unreviewedTotal = shots.reduce((count, sh) => count + sh.dialogue.filter(d => !d.reviewed).length, 0)
   const displayedShots = filterUnreviewed
     ? shots.filter(sh => sh.dialogue.some(d => !d.reviewed))
@@ -224,7 +230,10 @@ export function ShotsStep({ episodeId, initialSceneId }: Props) {
               <p className="text-xs text-gray-600">แผนคลิป · {selectedScene.dramaBeat.clipDurationsSec.join(' + ')} วินาที</p>
             )}
             {selectedScene?.dramaBeat?.dialoguePurpose && (
-              <p className="text-xs text-gray-600">บทพูด · {selectedScene.dramaBeat.dialoguePurpose}</p>
+              <p className="text-xs text-gray-600">
+                บทพูด · {selectedScene.dramaBeat.dialoguePurpose}
+                {selectedScene.dramaBeat.dialogueBudgetSec ? ` · เวลาพูดไม่เกิน ${selectedScene.dramaBeat.dialogueBudgetSec} วินาที` : ''}
+              </p>
             )}
           </div>
           <div className="flex gap-2 shrink-0">
@@ -262,6 +271,9 @@ export function ShotsStep({ episodeId, initialSceneId }: Props) {
         {runS3.isError && <p role="alert" className="text-sm text-red-700">เริ่มงานไม่สำเร็จ กรุณาลองอีกครั้ง</p>}
 
         {genScene.isPending && <AiLoadingBanner job={null} pending label="AI กำลังสร้างช็อตของซีนนี้" />}
+        {approveAll.isPending && approvingScene && needsDramaVideoPrompt(approvingScene) && (
+          <AiLoadingBanner job={null} pending label={`กำลังสร้าง Video Prompt ของ ${approvingScene.sceneCode}`} />
+        )}
         {(genScene.isError || approveAll.isError) && (
           <p role="alert" className="text-sm text-red-700">
             {((genScene.error ?? approveAll.error) as { response?: { data?: { error?: string } }; message?: string } | null)?.response?.data?.error ?? (genScene.error ?? approveAll.error)?.message}
@@ -271,13 +283,21 @@ export function ShotsStep({ episodeId, initialSceneId }: Props) {
           <div className="text-gray-500 text-sm bg-gray-50 rounded p-4">เลือกฉากจากรายการซ้ายมือ</div>
         )}
         {selectedSceneId && loadingShots && <div className="text-gray-400">กำลังโหลด…</div>}
+        {approvalResult?.promptStatus === 'updated' && selectedScene?.shotsApproved && !needsPrompt && (
+          <p role="status" className="text-sm text-green-700">อัปเดต Video Prompt ของซีนนี้ในขั้น 7 แล้ว</p>
+        )}
+        {approvalResult?.promptStatus === 'failed' && (
+          <p role="alert" className="text-sm text-red-700">{approvalResult.promptError}</p>
+        )}
 
         {shots.length > 0 && (
           <div className="flex flex-wrap items-center gap-3">
             <button onClick={() => selectedSceneId && approveAll.mutate(selectedSceneId)}
-              disabled={busy || !selectedSceneId || !!selectedScene?.shotsApproved}
+              disabled={busy || !selectedSceneId || (!!selectedScene?.shotsApproved && !needsPrompt)}
               className="text-sm px-3 py-1.5 rounded bg-green-700 text-white disabled:opacity-50">
-              {approveAll.isPending ? 'กำลังอนุมัติ…' : selectedScene?.shotsApproved ? '✓ อนุมัติซีนแล้ว' : 'อนุมัติ All ของซีน'}
+              {approveAll.isPending && approveAll.variables === selectedSceneId ? 'กำลังบันทึก…'
+                : selectedScene?.shotsApproved ? (needsPrompt ? 'สร้าง Video Prompt อีกครั้ง' : '✓ อนุมัติซีนแล้ว')
+                  : 'อนุมัติ All ของซีน'}
             </button>
             {unreviewedTotal > 0 && (
               <span className="text-sm text-orange-600">⚠ {unreviewedTotal} บทพูดยังไม่ตรวจ</span>

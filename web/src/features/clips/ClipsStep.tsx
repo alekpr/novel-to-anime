@@ -1,9 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { DRAMA_REPLAN_MESSAGE, hasInvalidDramaScenes } from '../../../../src/utils/shortDrama'
 import { DRAMA_DIALOGUE_REQUIRED } from '../../../../src/utils/dramaDialogue'
+import { usesLatinVideoPrompt } from '../../../../src/utils/videoPromptLanguage'
 import { useEpisodeStatus } from '../../hooks/useEpisodeStatus'
-import { promptsApi, scenesApi } from '../../lib/api'
+import { promptsApi, scenesApi, shotApprovalKey } from '../../lib/api'
 import { AiLoadingBanner } from '../../components/AiLoadingBanner'
 import { ReferenceSlots } from '../../components/ReferenceSlots'
 import type { Clip, Scene } from '../../lib/api'
@@ -40,7 +41,7 @@ function ClipCard({ clip, index }: { clip: Clip; index: number }) {
       {open && (
         <div className="border-t bg-white px-4 pb-4 pt-3 space-y-2">
           {clip.stale ? (
-            <p className="text-sm text-yellow-700">ช็อตเปลี่ยนแล้ว กรุณาอนุมัติและสร้างพรอมป์ใหม่</p>
+            <p className="text-sm text-yellow-700">ข้อมูลซีนหรือภาพอ้างอิงเปลี่ยนแล้ว กรุณาสร้างพรอมป์ใหม่</p>
           ) : clip.videoPrompt ? (
             <>
               <ReferenceSlots slots={clip.referenceSlots} />
@@ -48,6 +49,9 @@ function ClipCard({ clip, index }: { clip: Clip; index: number }) {
                 <span className="text-xs text-gray-500">{clip.referenceSlots?.length ? 'MiniMax H3 · 9:16' : 'DY Prompt'} · v{clip.promptVersion}</span>
                 <CopyButton text={clip.videoPrompt} />
               </div>
+              {!usesLatinVideoPrompt(clip.videoPrompt) && <p className="text-sm text-amber-800">
+                พรอมป์นี้ยังมีข้อความนอกบทพูดที่เป็นภาษาอื่น กดสร้างใหม่ที่ซีนนี้เพื่อปรับเป็นภาษาอังกฤษ
+              </p>}
               <pre className="text-xs bg-gray-50 border rounded p-3 whitespace-pre-wrap font-mono leading-relaxed overflow-x-auto max-h-96">
                 {clip.videoPrompt}
               </pre>
@@ -155,6 +159,7 @@ function SceneClipsPanel({ scene, defaultOpen, batchPending, dialoguePending, on
 
 export function ClipsStep({ episodeId }: Props) {
   const qc = useQueryClient()
+  const approvalPending = useIsMutating({ mutationKey: shotApprovalKey(episodeId) }) > 0
   const { data: episodeStatus } = useEpisodeStatus(episodeId)
   const { data: scenes = [], isLoading } = useQuery({
     queryKey: ['scenes', episodeId],
@@ -194,7 +199,7 @@ export function ClipsStep({ episodeId }: Props) {
         </div>
         <button
           onClick={() => genAll.mutate()}
-          disabled={genAll.isPending || pendingScenes.length > 0 || scenes.length === 0 || hasUnapprovedScenes || needsReplan || dialoguePending}
+          disabled={genAll.isPending || approvalPending || pendingScenes.length > 0 || scenes.length === 0 || hasUnapprovedScenes || needsReplan || dialoguePending}
           className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 text-sm shrink-0 flex items-center gap-2"
         >
           {genAll.isPending && (
@@ -230,7 +235,7 @@ export function ClipsStep({ episodeId }: Props) {
 
       <div className="space-y-3">
         {scenes.map((sc, i) => <SceneClipsPanel key={sc._id} scene={sc} defaultOpen={i === 0}
-          batchPending={genAll.isPending} dialoguePending={dialoguePending} onPendingChange={onPendingChange} />)}
+          batchPending={genAll.isPending || approvalPending} dialoguePending={dialoguePending} onPendingChange={onPendingChange} />)}
       </div>
     </div>
   )

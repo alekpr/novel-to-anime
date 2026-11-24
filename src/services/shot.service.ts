@@ -8,12 +8,20 @@ import { Shot } from "../models/Shot.js";
 import { Job } from "../models/Job.js";
 import { queues } from "../queues/jobRunner.js";
 import { DRAMA_REPLAN_MESSAGE, alignDramaShotTiming, fitsDramaScene, hasInvalidDramaScenes, shotTimeline } from "../utils/shortDrama.js";
-import { isSpokenLine } from "../utils/dramaDialogue.js";
+import { dramaSpeechSeconds, isSpokenLine } from "../utils/dramaDialogue.js";
+import { cameraAngleFromDirection, DRAMA_CAMERA_ANGLES, distinctDramaAngles, type DramaCameraAngle } from "../utils/dramaCamera.js";
 import { config } from "../config/index.js";
 
 type SceneLean = Record<string, any>;
 type EpisodeLean = Record<string, any>;
 type CharLean = Record<string, any>;
+type NeighborScene = {
+  _id: unknown;
+  sceneCode: string;
+  summary?: string;
+  dramaBeat?: { entry?: string; exit?: string; openingAngle?: DramaCameraAngle; closingAngle?: DramaCameraAngle };
+};
+const activeDramaShotWork = new Set<string>();
 
 export class ShotGenerationError extends Error {
   constructor(readonly statusCode: number, message: string) {
@@ -36,7 +44,7 @@ function isTemporaryUpstreamError(error: unknown): boolean {
 function reportShotModelError(error: unknown, sceneCode: string): never {
   const status = upstreamStatus(error);
   if (error instanceof LLMOutputValidationError) {
-    throw new ShotGenerationError(502, `${sceneCode} · AI ส่งช็อตไม่ครบเงื่อนไขเรื่องเวลา ตัวละคร บทพูด หรือคำกำกับช็อต กรุณาลองสร้างซีนนี้อีกครั้ง`);
+    throw new ShotGenerationError(502, `${sceneCode} · AI ส่งช็อตไม่ครบเงื่อนไขเรื่องเวลา บทพูด หรือมุมกล้องที่รอยต่อซีน กรุณาลองสร้างซีนนี้อีกครั้ง`);
   }
   if (status === 429) {
     throw new ShotGenerationError(429, `${sceneCode} · ผู้ให้บริการ AI จำกัดจำนวนคำขอหรือโควตา กรุณาลองใหม่ภายหลัง`);
@@ -53,17 +61,66 @@ function reportShotModelError(error: unknown, sceneCode: string): never {
   throw new ShotGenerationError(502, `${sceneCode} · ผู้ให้บริการ AI ตอบกลับไม่สำเร็จ กรุณาลองใหม่อีกครั้ง`);
 }
 
-// ---- core: สร้าง shots สำหรับ 1 scene ----
-export async function buildShotsForScene(
+async function readNeighbor(scene: SceneLean, previous: boolean) {
+  const order = previous ? -1 : 1;
+  const neighbor = await Scene.findOne({
+    episodeId: scene.episodeId,
+    order: previous ? { $lt: scene.order } : { $gt: scene.order },
+  }).sort({ order }).select("sceneCode summary dramaBeat").lean<NeighborScene>();
+  if (!neighbor) return;
+  const shot = await Shot.findOne({ sceneId: neighbor._id }).sort({ order })
+    .select("camera cameraAngle").lean<{ camera?: string; cameraAngle?: DramaCameraAngle }>();
+  const plannedAngle = previous ? neighbor.dramaBeat?.closingAngle : neighbor.dramaBeat?.openingAngle;
+  return {
+    sceneCode: neighbor.sceneCode,
+    summary: neighbor.summary,
+    frame: previous ? neighbor.dramaBeat?.exit : neighbor.dramaBeat?.entry,
+    camera: shot?.camera,
+    angle: shot?.cameraAngle ?? cameraAngleFromDirection(shot?.camera) ?? plannedAngle,
+  };
+}
+
+export async function withDramaShotWork<T>(episodeId: string, work: () => Promise<T>) {
+  if (activeDramaShotWork.has(episodeId)) {
+    throw new ShotGenerationError(409, "ตอนนี้กำลังสร้างหรืออนุมัติช็อต กรุณารอให้งานปัจจุบันเสร็จก่อน");
+  }
+  activeDramaShotWork.add(episodeId);
+  try {
+    return await work();
+  } finally {
+    activeDramaShotWork.delete(episodeId);
+  }
+}
+
+export function buildShotsForScene(
   scene: SceneLean,
   episode: EpisodeLean,
   characters: CharLean[],
-  prevSummary: string
+  prevSummary?: string,
+) {
+  const generate = () => generateShotsForScene(scene, episode, characters, prevSummary);
+  return scene.dramaBeat ? withDramaShotWork(String(scene.episodeId), generate) : generate();
+}
+
+async function generateShotsForScene(
+  scene: SceneLean,
+  episode: EpisodeLean,
+  characters: CharLean[],
+  prevSummary?: string,
 ): Promise<{ sceneSummary: string; tokensIn: number; tokensOut: number }> {
   const shortDrama = !!scene.dramaBeat;
   const sceneDurationSec = scene.estDurationSec ?? 30;
   if (hasInvalidDramaScenes([scene])) throw new Error(DRAMA_REPLAN_MESSAGE);
   const useGemini = config.llm.provider === "gemini";
+  const [previous, next] = shortDrama
+    ? await Promise.all([readNeighbor(scene, true), readNeighbor(scene, false)])
+    : [undefined, undefined];
+  const dialogueBudgetSec = scene.dramaBeat?.dialogueBudgetSec as number | undefined;
+  const plannedOpening = scene.dramaBeat?.openingAngle as DramaCameraAngle | undefined;
+  const plannedClosing = scene.dramaBeat?.closingAngle as DramaCameraAngle | undefined;
+  const opening = plannedOpening && (!previous?.angle || distinctDramaAngles(plannedOpening, previous.angle)) ? plannedOpening : undefined;
+  const closing = plannedClosing && (!next?.angle || distinctDramaAngles(plannedClosing, next.angle)) ? plannedClosing : undefined;
+  const previousSummary = prevSummary ?? previous?.summary ?? episode.summary ?? "";
 
   const charactersById = new Map(characters.map(character => [String(character._id), character]));
   const sceneChars = ((scene.characterIds ?? []) as unknown[]).flatMap(id => {
@@ -96,6 +153,13 @@ export async function buildShotsForScene(
     ? characterTokens.reduce((text, [name, token]) => text.split(name).join(token), value)
     : value;
   const toCharacterName = (ref: string) => charReverseMap.get(ref.trim().toUpperCase()) ?? ref.trim();
+  const replaceChar = (text: string) => useGemini
+    ? text.replace(/CHAR_\d+/g, token => charReverseMap.get(token) ?? token)
+    : text;
+  const handoffText = (neighbor: typeof previous) => neighbor
+    ? [neighbor.sceneCode, neighbor.angle, neighbor.camera, neighbor.frame]
+      .filter((value): value is string => !!value).map(toPromptNames).join(" | ")
+    : "none";
 
   const charContext = useGemini
     ? sceneChars.map((c, i) => `- CHAR_${i + 1} (${c.personality ?? ""}) | speechHabits: [${(c.voice?.speechHabits ?? []).join(", ")}]`).join("\n")
@@ -120,14 +184,20 @@ ${shortDrama ? `Beat: ${toPromptNames(scene.summary ?? "")}
 Start frame: ${toPromptNames(scene.dramaBeat.entry ?? "")}
 End frame: ${toPromptNames(scene.dramaBeat.exit ?? "")}
 ${dialoguePurpose ? `Dialogue required: ${toPromptNames(dialoguePurpose)}. Include a spoken line in the shot dialogue, with a visible approved speaker.` : ""}
+${dialogueBudgetSec !== undefined ? `Dialogue budget: ${dialogueBudgetSec}s of natural speech in total.` : ""}
+Previous scene closing shot: ${handoffText(previous)}
+Next scene opening shot: ${handoffText(next)}
+Opening camera angle: ${opening ?? "choose a clearly different angle from the previous closing shot"}
+Closing camera angle: ${closing ?? "choose a clearly different angle from the next opening shot"}
+cameraAngle values: ${DRAMA_CAMERA_ANGLES.join(", ")}. A front/three-quarter, three-quarter/profile, or high/overhead pair is too similar at a scene cut.
 Render this scene as one clip. All shots must total exactly ${sceneDurationSec}s, with a clean handoff at the end of the scene.
-Generate only this beat. Keep approved names and preserve Thai dialogue as written when using original lines.` : ""}
+Generate only this beat. Keep approved names and preserve the original spoken language; label shortened lines as generated.` : ""}
 
 ## Characters in this scene
 ${charContext || "(none)"}
 
 ## Previous summary
-${toPromptNames(prevSummary) || "(start of EP)"}
+${toPromptNames(previousSummary) || "(start of EP)"}
 
 ## Scene text
 ${toPromptNames(sceneText)}
@@ -139,7 +209,7 @@ ${toPromptNames(sceneText)}
     {
       "order": 1,
       "shotType": "wide",
-      "camera": "บรรยายการเคลื่อนไหวกล้องภาษาไทย",
+      "camera": "ขนาดภาพ มุมจริง และการเคลื่อนไหวกล้องภาษาไทย",${shortDrama ? '\n      "cameraAngle": "side-profile",' : ""}
       "durationSec": 4,${shortDrama ? '\n      "direction": { "blocking": "ตำแหน่ง/ทิศ/พร็อพ", "performance": "สีหน้า/แววตา/ภาษากาย", "cut": "ชนิด/จังหวะตัด", "backgroundActivity": "การเคลื่อนไหวฉากหลัง" },' : ""}
       "breakQuality": "hard",
       ${charNameField},
@@ -170,15 +240,39 @@ ${toPromptNames(sceneText)}
       ctx.addIssue({ code: "custom", path: ["shots"], message:
         `Your shots total ${returnedDuration}s. Adjust the shot times to exactly ${sceneDurationSec}s in tenths, 0.5–4s silent or up to 7s with dialogue.` });
     }
+    const first = shots[0].cameraAngle;
+    const last = shots.at(-1)?.cameraAngle;
+    if (!first || (opening && first !== opening) || (previous?.angle && !distinctDramaAngles(first, previous.angle))) {
+      ctx.addIssue({ code: "custom", path: ["shots", 0, "cameraAngle"], message:
+        `Use opening angle ${opening ?? "clearly different from the previous scene"}; the previous scene closes on ${previous?.angle ?? previous?.camera ?? "no prior camera"}.` });
+    }
+    if (!last || (closing && last !== closing) || (next?.angle && !distinctDramaAngles(last, next.angle))) {
+      ctx.addIssue({ code: "custom", path: ["shots", shots.length - 1, "cameraAngle"], message:
+        `Use closing angle ${closing ?? "clearly different from the next scene"}; the next scene opens on ${next?.angle ?? next?.camera ?? "no next camera"}.` });
+    }
+    let totalSpeech = 0;
     shots.forEach((shot, index) => {
       const visible = new Set(shot.characterNames.map(toCharacterName));
-      const speakers = new Set(shot.dialogue.map(line => toCharacterName(line.speakerName)));
-      if (!shot.direction || !shot.camera.trim() || !shot.action.trim() ||
-          [...visible].some(name => !charMap.has(name)) || speakers.size > 1 ||
+      if (!shot.direction || !shot.camera.trim() || !shot.cameraAngle || !shot.action.trim() ||
+          [...visible].some(name => !charMap.has(name)) ||
           shot.dialogue.some(line => !visible.has(toCharacterName(line.speakerName)) || !isSpokenLine(line.lineTh) || !line.tone.trim())) {
         ctx.addIssue({ code: "custom", path: ["shots", index], message: "Supply camera, action and all direction fields. Dialogue needs one known visible speaker and an explicit vocal tone." });
       }
+      const describedAngle = cameraAngleFromDirection(shot.camera);
+      if (describedAngle && describedAngle !== shot.cameraAngle) {
+        ctx.addIssue({ code: "custom", path: ["shots", index, "camera"], message: "The camera description must show the same physical angle as cameraAngle." });
+      }
+      const speech = dramaSpeechSeconds(shot.dialogue.map(line => ({ lineTh: replaceChar(line.lineTh) })));
+      totalSpeech += speech;
+      if (shot.dialogue.length > 1 || speech > shot.durationSec) {
+        ctx.addIssue({ code: "custom", path: ["shots", index, "dialogue"], message:
+          `Write at most one brief line, keeping the punch or new information and cutting setup. This dialogue needs about ${speech.toFixed(1)}s for a ${shot.durationSec}s shot. Label shortened source dialogue generated.` });
+      }
     });
+    if (dialogueBudgetSec !== undefined && totalSpeech > dialogueBudgetSec) {
+      ctx.addIssue({ code: "custom", path: ["shots"], message:
+        `The dialogue takes about ${totalSpeech.toFixed(1)}s. Keep only the essential spoken beats and stay within the scene's ${dialogueBudgetSec}s speech budget.` });
+    }
   }) : ShotListResult;
   const request = {
     system: loadPrompt(shortDrama ? "s3-short-drama.txt" : "s3-shots.txt"),
@@ -210,12 +304,6 @@ ${toPromptNames(sceneText)}
       .map(ref => charMap.get(toCharacterName(ref))?._id)
       .filter(Boolean);
 
-    // replace CHAR_N ที่อาจค้างอยู่ใน text fields (Gemini เท่านั้น)
-    const replaceChar = (text: string) => {
-      if (!useGemini) return text;
-      return text.replace(/CHAR_\d+/g, token => charReverseMap.get(token) ?? token);
-    };
-
     const dialogue = sh.dialogue.map((d) => ({
       speakerId: charMap.get(toCharacterName(d.speakerName))?._id,
       lineTh: replaceChar(d.lineTh),
@@ -234,6 +322,7 @@ ${toPromptNames(sceneText)}
           shotCode,
           shotType: sh.shotType,
           camera: replaceChar(sh.camera),
+          ...(shortDrama && { cameraAngle: sh.cameraAngle }),
           durationSec: sh.durationSec,
           breakQuality: sh.breakQuality,
           characterIds,
@@ -264,7 +353,7 @@ ${toPromptNames(sceneText)}
     ...(shortDrama && { "dramaBeat.clipDurationsSec": [sceneDurationSec] }),
   });
 
-  return { sceneSummary: data.sceneSummary || prevSummary, tokensIn: tokens.in, tokensOut: tokens.out };
+  return { sceneSummary: data.sceneSummary || previousSummary, tokensIn: tokens.in, tokensOut: tokens.out };
 }
 
 // ---- S3 job: รัน parallel ทุก scene ----

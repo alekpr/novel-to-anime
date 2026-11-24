@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
+import { DRAMA_CAMERA_LABELS } from '../../../../src/utils/dramaCamera'
 import {
   DRAMA_EP_SECONDS, DRAMA_MAX_CLIP_SECONDS, DRAMA_MIN_CLIP_SECONDS, DRAMA_REPLAN_MESSAGE,
   hasInvalidDramaScenes, isDramaClipDuration, minimumDramaSceneCount,
@@ -153,7 +154,13 @@ function SceneCard({ scene, onClick, selected, onEdit }: { scene: Scene; onClick
         <div className="text-xs text-gray-500 space-y-1">
           <p>เปิดซีน · {scene.dramaBeat.entry}</p>
           <p>จบซีน · {scene.dramaBeat.exit}</p>
-          {scene.dramaBeat.dialoguePurpose && <p>บทพูด · {scene.dramaBeat.dialoguePurpose}</p>}
+          {scene.dramaBeat.openingAngle && scene.dramaBeat.closingAngle && (
+            <p>มุมกล้อง · {DRAMA_CAMERA_LABELS[scene.dramaBeat.openingAngle]} → {DRAMA_CAMERA_LABELS[scene.dramaBeat.closingAngle]}</p>
+          )}
+          {scene.dramaBeat.dialoguePurpose && <p>
+            บทพูด · {scene.dramaBeat.dialoguePurpose}
+            {scene.dramaBeat.dialogueBudgetSec ? ` · เวลาพูดไม่เกิน ${scene.dramaBeat.dialogueBudgetSec} วินาที` : ''}
+          </p>}
           <p className={validDuration ? undefined : 'text-orange-700'}>
             {validDuration ? `1 คลิป · ${scene.estDurationSec} วินาที` : 'ต้องแบ่งซีนใหม่'}
           </p>

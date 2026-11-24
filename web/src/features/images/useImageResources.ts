@@ -77,7 +77,7 @@ export function useImageResources(projectId: string, bible: EpisodeStatusResult[
   }
 
   return {
-    chars, locs, total: keys.length, ready, missing, complete, references,
+    projectId, chars, locs, total: keys.length, ready, missing, complete, references,
     supported: supportsImageFolders,
     isLoading: enabled && ((!!bible && ((!allChars && !charsFailed) || (!allLocs && !locsFailed))) || query.isLoading),
     loadFailed: charsFailed || locsFailed || query.isError,

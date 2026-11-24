@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DRAMA_CAMERA_ANGLES } from "../utils/dramaCamera.js";
 
 // ---- S1: Story Bible Extraction ----
 
@@ -112,6 +113,9 @@ export const LLMScene = z.object({
   entry: z.string().trim().default(""),
   exit: z.string().trim().default(""),
   dialoguePurpose: z.string().trim().default(""),
+  dialogueBudgetSec: z.number().min(0).optional(),
+  openingAngle: z.enum(DRAMA_CAMERA_ANGLES).optional(),
+  closingAngle: z.enum(DRAMA_CAMERA_ANGLES).optional(),
   supportingLocations: z.array(z.string()).default([]),
   wardrobe: z.record(z.string(), z.string()).default({}),
 });
@@ -145,6 +149,7 @@ export const LLMShot = z.object({
     return valid.includes(v) ? v : "medium";
   }).pipe(z.enum(["wide", "medium", "close-up", "medium-long", "insert", "establishing", "OTS", "POV"])).catch("medium"),
   camera: z.union([z.string(), z.null()]).transform(v => v ?? "").pipe(z.string()).catch(""),
+  cameraAngle: z.enum(DRAMA_CAMERA_ANGLES).optional(),
   durationSec: z.number().min(0.5).max(20).default(4),
   breakQuality: z.string().transform((v) => (["hard", "soft", "avoid"].includes(v) ? v : "soft")).pipe(z.enum(["hard", "soft", "avoid"])).catch("soft"),
   characterNames: z.array(z.string()).catch([]),

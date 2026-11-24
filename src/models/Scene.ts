@@ -1,4 +1,5 @@
 import { Schema, model, Types } from "mongoose";
+import { DRAMA_CAMERA_ANGLES } from "../utils/dramaCamera.js";
 
 const referencePictureSchema = new Schema({
   index: Number,
@@ -15,6 +16,16 @@ const clipSchema = new Schema({
   referenceSlots: [{ _id: false, index: Number, name: String, role: String, resourceKey: String }],
   videoPrompt: { type: String, default: "" },
   promptVersion: { type: Number, default: 1 },
+  promptRevision: {
+    type: new Schema({
+      comment: String,
+      updatedAt: Date,
+      sourceJobId: Types.ObjectId,
+      sourceVideoCount: Number,
+      sourcePromptVersion: Number,
+    }, { _id: false }),
+    default: undefined,
+  },
   clipAssetId: { type: Types.ObjectId, ref: "Asset", default: null },
   takes: [{ type: Types.ObjectId, ref: "Asset" }],
   stale: { type: Boolean, default: false },
@@ -38,6 +49,9 @@ const sceneSchema = new Schema({
       entry: String,
       exit: String,
       dialoguePurpose: String,
+      dialogueBudgetSec: Number,
+      openingAngle: { type: String, enum: DRAMA_CAMERA_ANGLES },
+      closingAngle: { type: String, enum: DRAMA_CAMERA_ANGLES },
       clipDurationsSec: { type: [Number], default: undefined },
       supportingLocationIds: [{ type: Types.ObjectId, ref: "Location" }],
       wardrobe: [{ _id: false, characterId: { type: Types.ObjectId, ref: "Character" }, outfit: String }],

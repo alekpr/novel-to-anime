@@ -10,13 +10,26 @@ import { assembleShortDramaH3 } from "../templates/shortDramaH3.js";
 import { DRAMA_REPLAN_MESSAGE, fitsDramaScene, isDramaClipDuration } from "../utils/shortDrama.js";
 import { countDramaDialogue } from "../utils/dramaDialogue.js";
 import { characterImageKey, locationImageKey, outfitImageKeys } from "../utils/imageReferenceKeys.js";
+import { usesLatinVideoDirection, usesLatinVideoPrompt } from "../utils/videoPromptLanguage.js";
+import type { DramaCameraAngle } from "../utils/dramaCamera.js";
 
-const DirectionText = z.string().trim().min(1);
+const DirectionText = z.string().trim().min(1)
+  .refine(usesLatinVideoDirection, "Write all production directions in English without dialogue tags.");
+const SpokenDelivery = z.string().trim().max(100).regex(/^(?:in an? [a-zA-Z][a-zA-Z ,'-]* voice)?$/,
+  'Use an English phrase like "in a low, steady voice", or an empty string.');
 const VisualDirection = z.object({
   overview: DirectionText,
+  references: z.array(z.object({ subject: z.number().int(), description: DirectionText })),
   blocking: DirectionText,
   soundAndEditing: DirectionText,
-  shots: z.array(z.object({ order: z.number().int(), direction: DirectionText })),
+  shots: z.array(z.object({
+    order: z.number().int(),
+    direction: DirectionText,
+    spokenDelivery: z.array(z.object({
+      language: z.string().trim().max(50).regex(/^[a-zA-Z]+(?:[ -][a-zA-Z]+)*$/, "Name the language of the original line in English."),
+      cue: SpokenDelivery,
+    })),
+  })),
 });
 
 export type DramaScene = {
@@ -33,7 +46,7 @@ export type DramaScene = {
   locationId?: Types.ObjectId;
   characterIds: Types.ObjectId[];
   shotsApproved?: boolean;
-  clips: { promptVersion?: number }[];
+  clips: { promptVersion?: number; videoPrompt?: string; stale?: boolean }[];
   dramaBeat?: {
     entry: string;
     exit: string;
@@ -46,8 +59,9 @@ type CharacterReference = {
   _id: Types.ObjectId;
   name: string;
   appearanceBlock?: string;
+  referenceWardrobe?: string;
   appearance?: { defaultOutfit?: string };
-  outfits?: { name: string; outfitPrompt?: string; description?: string }[];
+  outfits?: { name: string; outfitPrompt?: string; description?: string; referenceAppearance?: string }[];
   voice?: { pitch?: string; timbre?: string; accent?: string };
 };
 type ApprovedShot = {
@@ -56,6 +70,7 @@ type ApprovedShot = {
   order: number;
   durationSec: number;
   camera?: string;
+  cameraAngle?: DramaCameraAngle;
   action?: string;
   emotion?: string;
   direction?: { blocking: string; performance: string; cut: string; backgroundActivity: string };
@@ -106,7 +121,8 @@ export async function runShortDramaPrompt(scene: DramaScene) {
       resourceKey: outfit
         ? outfitImageKeys({ ...character, _id: characterId })[character.outfits!.indexOf(outfit)]
         : characterImageKey(characterId),
-      description: [character.name, character.appearanceBlock, outfit?.outfitPrompt || outfit?.description || character.appearance?.defaultOutfit].filter(Boolean).join(". "),
+      description: [character.name, outfit?.referenceAppearance || character.appearanceBlock,
+        outfit?.outfitPrompt || outfit?.description || character.referenceWardrobe || character.appearance?.defaultOutfit].filter(Boolean).join(". "),
     };
   });
 
@@ -121,6 +137,7 @@ export async function runShortDramaPrompt(scene: DramaScene) {
     order: shot.order,
     durationSec: shot.durationSec,
     camera: shot.camera,
+    cameraAngle: shot.cameraAngle,
     action: shot.action,
     emotion: shot.emotion,
     direction: shot.direction,
@@ -148,12 +165,15 @@ export async function runShortDramaPrompt(scene: DramaScene) {
       references: references.map(({ name, role, description }, i) => ({ subject: i + 1, name, role, description })),
       shots: approvedShots.map(shot => ({
         ...shot,
-        dialogue: shot.dialogue.map(({ subject, tone }) => ({ subject, tone })),
+        dialogue: shot.dialogue.map(({ subject, tone, text }) => ({ subject, tone, originalLine: text })),
       })),
     }),
     schema: VisualDirection.refine(
-      result => result.shots.length === shots.length && result.shots.every((shot, i) => shot.order === shots[i].order),
-      "Return exactly one direction per shot in the supplied scene order.",
+      result => result.references.length === references.length &&
+        result.references.every((reference, i) => reference.subject === i + 1) &&
+        result.shots.length === approvedShots.length && result.shots.every((shot, i) =>
+        shot.order === approvedShots[i].order && shot.spokenDelivery.length === approvedShots[i].dialogue.length),
+      "Return each reference and shot in order and one spokenDelivery entry per supplied dialogue line.",
     ),
     temperature: 0.2,
   });
@@ -162,9 +182,19 @@ export async function runShortDramaPrompt(scene: DramaScene) {
     overview: data.overview,
     blocking: data.blocking,
     soundAndEditing: data.soundAndEditing,
-    references,
-    shots: approvedShots.map((shot, i) => ({ ...shot, direction: data.shots[i].direction })),
+    references: references.map((reference, i) => ({ ...reference, description: data.references[i].description })),
+    shots: approvedShots.map((shot, i) => ({
+      durationSec: shot.durationSec,
+      cameraAngle: shot.cameraAngle,
+      direction: data.shots[i].direction,
+      dialogue: shot.dialogue.map(({ subject, text }, lineIndex) => ({
+        subject, text,
+        language: data.shots[i].spokenDelivery[lineIndex].language,
+        delivery: data.shots[i].spokenDelivery[lineIndex].cue,
+      })),
+    })),
   });
+  if (!usesLatinVideoPrompt(prompt)) throw new Error("Video Prompt ต้องใช้ภาษาอังกฤษ ยกเว้นบทพูดที่อยู่ในแท็ก <d>");
   const clip = {
     clipCode: `${scene.sceneCode}-C01`,
     shotIds: shots.map(shot => shot._id),

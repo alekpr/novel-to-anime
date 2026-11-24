@@ -34,6 +34,13 @@ export function hasInvalidDramaScenes(scenes: readonly { dramaBeat?: unknown; es
   return scenes.some(scene => scene.dramaBeat && !isDramaClipDuration(scene.estDurationSec));
 }
 
+export function needsDramaVideoPrompt(scene: {
+  dramaBeat?: unknown;
+  clips?: readonly { videoPrompt?: string; stale?: boolean }[];
+}): boolean {
+  return !!scene.dramaBeat && !scene.clips?.some(clip => !clip.stale && clip.videoPrompt?.trim());
+}
+
 export function fitsDramaScene(shots: DramaShot[], sceneDurationSec: unknown): boolean {
   return isDramaClipDuration(sceneDurationSec) &&
     shots.length > 0 &&

@@ -19,6 +19,7 @@ import {
 import { planWorkflow } from "../utils/runningHubWorkflow.js";
 import { supportedReferenceImage, validPictureSlots, videoDuration, videoRatio } from "../utils/videoClipInputs.js";
 import { isDramaClipDuration } from "../utils/shortDrama.js";
+import { usesLatinVideoPrompt } from "../utils/videoPromptLanguage.js";
 
 export const runningHubVideoKey = "runninghub-video";
 type VideoScene = {
@@ -69,6 +70,9 @@ export async function submitRunningHubVideo(sceneId: string, clipCode: string, f
   const projectId = String(scene.projectId);
   return withProjectActivity(projectId, async () => {
     if (String(clip.promptVersion) !== form.get("promptVersion")) throw new RunningHubError(409, "พรอมป์เปลี่ยนแล้ว กรุณาเปิดคลิปอีกครั้ง");
+    if (!usesLatinVideoPrompt(clip.videoPrompt)) {
+      throw new RunningHubError(422, "พรอมป์นี้ยังมีข้อความนอกบทพูดที่เป็นภาษาอื่น กรุณาสร้างพรอมป์ใหม่ในขั้น 6");
+    }
     if (!Number.isFinite(clip.durationSec) || clip.durationSec <= 0 ||
         (scene.dramaBeat && (!scene.shotsApproved || !isDramaClipDuration(clip.durationSec)))) {
       throw new RunningHubError(422, "กรุณาตรวจอนุมัติช็อตและความยาวที่ระบุในพรอมป์");

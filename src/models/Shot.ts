@@ -1,4 +1,5 @@
 import { Schema, model, Types } from "mongoose";
+import { DRAMA_CAMERA_ANGLES } from "../utils/dramaCamera.js";
 
 const dialogueLineSchema = new Schema({
   speakerId: { type: Types.ObjectId, ref: "Character" },
@@ -30,6 +31,7 @@ const shotSchema = new Schema({
     default: "medium",
   },
   camera: String,
+  cameraAngle: { type: String, enum: DRAMA_CAMERA_ANGLES },
   durationSec: { type: Number, default: 4 },
   breakQuality: { type: String, enum: ["hard", "soft", "avoid"], default: "soft" },
   characterIds: [{ type: Types.ObjectId, ref: "Character" }],

@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { EpisodeStepper } from '../../components/EpisodeStepper'
+import { AiProviderBadge } from '../../components/AiProviderBadge'
 import { NextActionBar } from '../../components/NextActionBar'
 import { ClipsStep } from '../clips/ClipsStep'
 import { ExportStep } from '../export/ExportStep'
@@ -117,13 +118,16 @@ export function EpisodeWorkspace({ projectId }: Props) {
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-2 bg-white border-b">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-white px-4 py-2">
         <a href="/" className="text-blue-600 hover:underline text-sm">◀ โปรเจกต์</a>
         <span className="text-gray-400">/</span>
         <span className="font-medium text-sm">
           {episode ? `EP${episode.number} – ${episode.title}` : 'Episode'}
         </span>
-        <a href="/settings" className="ml-auto text-xs text-gray-400 hover:text-gray-600">⚙ Settings</a>
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          <AiProviderBadge />
+          <a href="/settings" className="text-xs text-gray-400 hover:text-gray-600">⚙ Settings</a>
+        </div>
       </div>
 
       {/* Stepper */}
@@ -178,7 +182,7 @@ export function EpisodeWorkspace({ projectId }: Props) {
         )}
         {episodeId && (step === 'video' || statusData?.steps.some(item => item.key === 'video' && item.status !== 'locked')) && (
           <div hidden={step !== 'video'}>
-            <VideoPromptsStep episodeId={episodeId} projectId={projectId} resources={imageResources} visible={step === 'video'}
+            <VideoPromptsStep key={episodeId} episodeId={episodeId} projectId={projectId} resources={imageResources} visible={step === 'video'}
               onImages={() => setStep('images')} />
           </div>
         )}

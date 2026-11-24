@@ -1,4 +1,5 @@
 import { shotTimeline } from "../utils/shortDrama.js";
+import type { DramaCameraAngle } from "../utils/dramaCamera.js";
 
 type Reference = {
   name: string;
@@ -6,8 +7,8 @@ type Reference = {
   description: string;
   resourceKey?: string;
 };
-type Dialogue = { subject: number; text: string; tone: string };
-type DirectedShot = { durationSec: number; direction: string; dialogue: Dialogue[] };
+type Dialogue = { subject: number; text: string; language: string; delivery: string };
+type DirectedShot = { durationSec: number; cameraAngle?: DramaCameraAngle; direction: string; dialogue: Dialogue[] };
 
 function timecode(seconds: number) {
   return `00:${seconds.toFixed(3).padStart(6, "0")}`;
@@ -36,17 +37,15 @@ export function assembleShortDramaH3(input: {
     `<Subject ${i + 1}>: <Picture ${i + 1}>[${description}]`);
 
   const speakerLines = Array.from(speakers, ([subject, speaker]) =>
-    `S${speaker} is ${input.references[subject - 1].name}, <Subject ${subject}>. Speaks only in Shot ${speakerShots.get(subject)!.join(", ")}.`);
+    `<Subject ${subject}> (S${speaker}) speaks only in ${speakerShots.get(subject)!.map(n => `[Shot ${n}]`).join(", ")}.`);
   const silent = input.shots.flatMap((shot, i) => shot.dialogue.length ? [] : [i + 1]);
   const timeRange = shotTimeline(input.shots);
   const durationSec = timeRange.at(-1)!.end;
 
   const shots = input.shots.map((shot, i) => [
-    `[Shot ${i + 1}] ${timecode(timeRange[i].start)}–${timecode(timeRange[i].end)}. ${shot.direction}`,
-    ...shot.dialogue.flatMap(({ subject, text, tone }) => [
-      `<Subject ${subject}> (S${speakers.get(subject)}): <d>[Thai] ${text}</d>`,
-      `Vocal direction: ${tone}`,
-    ]),
+    `[Shot ${i + 1}] ${timecode(timeRange[i].start)}–${timecode(timeRange[i].end)}. ${shot.cameraAngle ? `Camera angle: ${shot.cameraAngle}. ` : ""}${shot.direction}`,
+    ...shot.dialogue.map(({ subject, text, language, delivery }) =>
+      `<Subject ${subject}> (S${speakers.get(subject)}) says${delivery ? ` ${delivery}` : ""}: <d>[${language}] ${text}</d>`),
   ].join("\n"));
 
   const prompt = [
@@ -57,7 +56,7 @@ export function assembleShortDramaH3(input: {
       "SPEAKER LOCK",
       ...speakerLines,
       silent.length ? `Shots ${silent.join(", ")} are silent. Keep lips closed.` : "",
-      speakers.size ? "Cut to each assigned speaker before the first word and stay on that face until the line ends. Preserve distinct voices and natural Thai lip sync. No overlapping voices." : "",
+      speakers.size ? "Speak only the tagged dialogue verbatim in its specified language. Keep all production directions unspoken. Cut to each assigned speaker before the first word and stay on that face until the line ends. Preserve distinct voices and natural lip sync. No narration or overlapping voices." : "",
     ].filter(Boolean).join("\n"),
     ...shots,
     `BACKGROUND ACTIVITY, SOUND AND EDITING\n${input.soundAndEditing}\nKeep background movement and sound below the main action. No extra dialogue, captions, fade or cut to black. End at ${timecode(durationSec)}.`,

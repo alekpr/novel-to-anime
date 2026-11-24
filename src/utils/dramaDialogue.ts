@@ -4,6 +4,18 @@ export function isSpokenLine(text: unknown): text is string {
   return typeof text === "string" && /[\p{L}\p{N}]/u.test(text);
 }
 
+const spokenWords = new Intl.Segmenter("th", { granularity: "word" });
+
+export function dramaSpeechSeconds(lines: readonly { lineTh?: unknown }[]): number {
+  return lines.reduce((seconds, { lineTh }) => {
+    if (!isSpokenLine(lineTh)) return seconds;
+    const words = [...spokenWords.segment(lineTh)].filter(word => word.isWordLike).length;
+    const letters = lineTh.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
+    // A planning estimate for natural delivery, with room to speak before the cut.
+    return seconds + Math.max(words / 3.5, letters / 14) + 0.25;
+  }, 0);
+}
+
 export function countDramaDialogue(shots: readonly {
   dialogue?: readonly unknown[];
   characterIds?: readonly unknown[];

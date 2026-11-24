@@ -1,5 +1,14 @@
 import { getWorkspace, updateWorkspace } from '../images/imageResourceStore'
 
+async function openFootages(projectId: string) {
+  const workspace = await getWorkspace(projectId)
+  if (!workspace || await workspace.folder.queryPermission({ mode: 'readwrite' }) !== 'granted') {
+    throw new Error('อนุญาตให้แอปบันทึกไฟล์ในโฟลเดอร์ Footages ก่อน')
+  }
+  const directory = await workspace.folder.getDirectoryHandle('Footages', { create: true })
+  return { workspace, directory }
+}
+
 async function fileIn(directory: FileSystemDirectoryHandle, name: string) {
   try {
     return await directory.getFileHandle(name)
@@ -11,11 +20,7 @@ async function fileIn(directory: FileSystemDirectoryHandle, name: string) {
 
 export function saveFootage(projectId: string, sceneCode: string, clipCode: string, jobId: string, index: number) {
   return navigator.locks.request(`novel-footages:${projectId}`, async () => {
-    const workspace = await getWorkspace(projectId)
-    if (!workspace || await workspace.folder.queryPermission({ mode: 'readwrite' }) !== 'granted') {
-      throw new Error('อนุญาตให้แอปบันทึกไฟล์ในโฟลเดอร์ Footages ก่อน')
-    }
-    const directory = await workspace.folder.getDirectoryHandle('Footages', { create: true })
+    const { workspace, directory } = await openFootages(projectId)
     const key = `${jobId}:${index}`
     const names = workspace.footageNames ?? {}
     const clipSuffix = clipCode.match(/-C(\d+)$/)?.[1]
@@ -50,5 +55,21 @@ export function saveFootage(projectId: string, sceneCode: string, clipCode: stri
     const file = await handle.getFile()
     if (!file.size) throw new Error('ไฟล์วิดีโอที่บันทึกไว้ยังไม่มีข้อมูล')
     return file
+  })
+}
+
+export function saveEpisodeSubtitles(projectId: string, episodeId: string) {
+  return navigator.locks.request(`novel-subtitles:${projectId}:${episodeId}`, async () => {
+    const { workspace, directory } = await openFootages(projectId)
+    const response = await fetch(`/api/episodes/${encodeURIComponent(episodeId)}/subtitles`, { cache: 'no-store' })
+    if (!response.ok) {
+      const details = await response.json().catch(() => null)
+      throw new Error(details?.error || 'เตรียมซับไตเติลไม่สำเร็จ กรุณาลองอีกครั้ง')
+    }
+    const { filename, text, cueCount }: { filename: string; text: string; cueCount: number } = await response.json()
+    const handle = await directory.getFileHandle(filename, { create: true })
+    await new Blob([text], { type: 'application/x-subrip;charset=utf-8' }).stream()
+      .pipeTo(await handle.createWritable())
+    return { path: `${workspace.folder.name}/Footages/${handle.name}`, cueCount, workspaceId: workspace.workspaceId }
   })
 }

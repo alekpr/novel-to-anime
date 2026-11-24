@@ -245,11 +245,14 @@ Return JSON: { "appearance": { "hair": "...", "skin": "...", "eyes": "...", "bui
     if (char.outfits?.length > 0) {
       updateSet["outfits.0.outfitPrompt"] = data.outfitPrompt;
       updateSet["outfits.0.outfitSheetPrompt"] = data.characterSheetPrompt;
-      const updated = await Character.findByIdAndUpdate(id, { $set: updateSet }, { new: true });
+      const updated = await Character.findByIdAndUpdate(id, {
+        $set: updateSet, $unset: { referenceWardrobe: "", "outfits.0.referenceAppearance": "" },
+      }, { new: true });
       return updated;
     } else if (matchedFaction) {
       const updated = await Character.findByIdAndUpdate(id, {
         $set: updateSet,
+        $unset: { referenceWardrobe: "" },
         $push: { outfits: {
           name: `ชุด${matchedFaction.name}`,
           description: matchedFaction.costumeDescription || matchedFaction.name,
@@ -260,7 +263,9 @@ Return JSON: { "appearance": { "hair": "...", "skin": "...", "eyes": "...", "bui
       }, { new: true });
       return updated;
     }
-    const updated = await Character.findByIdAndUpdate(id, { $set: updateSet }, { new: true });
+    const updated = await Character.findByIdAndUpdate(id, {
+      $set: updateSet, $unset: { referenceWardrobe: "" },
+    }, { new: true });
     return updated;
   });
 
@@ -314,11 +319,14 @@ Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitP
     if (char.outfits?.length > 0) {
       updateSet["outfits.0.outfitPrompt"] = data.outfitPrompt;
       updateSet["outfits.0.outfitSheetPrompt"] = data.characterSheetPrompt;
-      const updated = await Character.findByIdAndUpdate(id, { $set: updateSet }, { new: true });
+      const updated = await Character.findByIdAndUpdate(id, {
+        $set: updateSet, $unset: { referenceWardrobe: "", "outfits.0.referenceAppearance": "" },
+      }, { new: true });
       return updated;
     } else if (matchedFaction) {
       const updated = await Character.findByIdAndUpdate(id, {
         $set: updateSet,
+        $unset: { referenceWardrobe: "" },
         $push: { outfits: {
           name: `ชุด${matchedFaction.name}`,
           description: matchedFaction.costumeDescription || matchedFaction.name,
@@ -329,7 +337,9 @@ Return JSON: { "appearanceBlock": "...", "characterSheetPrompt": "...", "outfitP
       }, { new: true });
       return updated;
     }
-    const updated = await Character.findByIdAndUpdate(id, { $set: updateSet }, { new: true });
+    const updated = await Character.findByIdAndUpdate(id, {
+      $set: updateSet, $unset: { referenceWardrobe: "" },
+    }, { new: true });
     return updated;
   });
 }

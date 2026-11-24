@@ -14,6 +14,7 @@ const appearanceSchema = new Schema({
 
 const outfitSchema = new Schema({
   name: String, description: String,
+  referenceAppearance: String,
   outfitPrompt: { type: String, default: "" },
   outfitSheetPrompt: { type: String, default: "" },
   usedInScenes: [String],
@@ -40,6 +41,7 @@ const characterSchema = new Schema({
   appearance: { type: appearanceSchema, default: () => ({}) },
   outfits: [outfitSchema],
   appearanceBlock: { type: String, default: "" },
+  referenceWardrobe: String,
   characterSheetPrompt: { type: String, default: "" },
   referenceImages: [refImageSchema],
   voice: { type: voiceSchema, default: () => ({}) },

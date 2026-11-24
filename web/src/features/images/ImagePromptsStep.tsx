@@ -148,10 +148,10 @@ function CharCard({ char, currentEp, onRefresh, resources }: {
                       <span className="text-xs text-gray-400 flex-1 truncate">{o.description}</span>
                     </div>
                     {o.outfitPrompt
-                      ? <PromptBlock label="Outfit Prompt (video/scene)" text={o.outfitPrompt} highlight={isNew} />
+                      ? <PromptBlock label="Outfit Prompt (video/scene)" text={[o.referenceAppearance, o.outfitPrompt].filter(Boolean).join('\n')} highlight={isNew} />
                       : <div className="text-xs text-orange-500">⚠ ยังไม่มี outfitPrompt</div>
                     }
-                    <PromptBlock label="Character Reference 2×2" text={characterReferenceSheet(char.name, appearance, o.outfitPrompt || o.description)} highlight={isNew}
+                    <PromptBlock label="Character Reference 2×2" text={characterReferenceSheet(char.name, o.referenceAppearance || appearance, o.outfitPrompt || o.description)} highlight={isNew}
                       reference={{ slotKey: outfitKeys[i], resources }} />
                   </div>
                 )
@@ -161,7 +161,7 @@ function CharCard({ char, currentEp, onRefresh, resources }: {
 
           {/* Base appearance (ไม่มีชุด) */}
           <PromptBlock label="Appearance Block (base — ไม่มีชุด)" text={appearance} />
-          {!outfits.length && <PromptBlock label="Character Reference 2×2" text={characterReferenceSheet(char.name, appearance, char.appearance?.defaultOutfit ?? '')}
+          {!outfits.length && <PromptBlock label="Character Reference 2×2" text={characterReferenceSheet(char.name, appearance, char.referenceWardrobe || char.appearance?.defaultOutfit || '')}
             reference={{ slotKey: characterImageKey(char._id), resources }} />}
           <PromptBlock label="Voice Prompt" text={char.voice?.voicePrompt ?? ''} />
         </div>
@@ -218,7 +218,7 @@ function LocCard({ loc, onRefresh, resources }: { loc: Location; onRefresh: () =
       {open && (
         <div className="px-4 pb-4 space-y-3 border-t bg-white pt-3">
           <PromptBlock label="Location Block (ใส่ใน video prompt)" text={loc.locationBlock ?? ''} />
-          <PromptBlock label="Location Reference 2×2" text={locationReferenceSheet(loc.name, [loc.description, loc.locationBlock].filter(Boolean).join('. ') || loc.masterPrompt || '')}
+          <PromptBlock label="Location Reference 2×2" text={locationReferenceSheet(loc.name, loc.locationBlock || loc.description || loc.masterPrompt || '')}
             reference={{ slotKey: locationImageKey(loc._id), resources }} />
         </div>
       )}

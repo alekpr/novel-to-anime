@@ -1,10 +1,14 @@
 import { FastifyInstance } from "fastify";
+import { isObjectIdOrHexString } from "mongoose";
 import { Scene } from "../models/Scene.js";
 import { Episode } from "../models/Episode.js";
 import { Shot } from "../models/Shot.js";
 import { runPromptGeneration } from "../services/prompt.service.js";
+import { reviseVideoPrompt, VideoPromptRevisionError, VideoPromptRevisionInput } from "../services/videoPromptRevision.service.js";
+import { ProjectActivityError } from "../services/projectLifecycle.service.js";
 import { DRAMA_REPLAN_MESSAGE, hasInvalidDramaScenes } from "../utils/shortDrama.js";
 import { countDramaDialogue, DRAMA_DIALOGUE_REQUIRED } from "../utils/dramaDialogue.js";
+import { buildEpisodeSubtitles, SubtitleExportError, type SubtitleScene } from "../utils/episodeSubtitles.js";
 
 async function episodeHasApprovedDialogue(scenes: readonly { _id: unknown; dramaBeat?: unknown; shotsApproved?: unknown }[]) {
   const approvedDramaSceneIds = scenes.filter(scene => scene.dramaBeat && scene.shotsApproved === true).map(scene => scene._id);
@@ -14,6 +18,38 @@ async function episodeHasApprovedDialogue(scenes: readonly { _id: unknown; drama
 }
 
 export async function promptRoutes(app: FastifyInstance) {
+  app.get<{ Params: { id: string } }>("/episodes/:id/subtitles", async (req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    const { id } = req.params;
+    const episode = isObjectIdOrHexString(id) ? await Episode.findById(id).select("number").lean() : null;
+    if (!episode) return reply.code(404).send({ error: "ไม่พบตอนนี้" });
+
+    const scenes = await Scene.find({ episodeId: id }).sort({ order: 1, _id: 1 })
+      .select("sceneCode clips.clipCode clips.durationSec clips.stale clips.videoPrompt").lean<SubtitleScene[]>();
+    try {
+      return {
+        filename: `EP${String(episode.number).padStart(2, "0")}-subtitles.srt`,
+        ...buildEpisodeSubtitles(scenes),
+      };
+    } catch (error) {
+      if (error instanceof SubtitleExportError) return reply.code(409).send({ error: error.message });
+      throw error;
+    }
+  });
+
+  app.post<{ Params: { sceneId: string; clipCode: string } }>("/scenes/:sceneId/clips/:clipCode/revise-prompt", async (req, reply) => {
+    const body = VideoPromptRevisionInput.safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: "ใส่คอมเมนต์ไม่เกิน 2,000 ตัวอักษรและเลือกคลิปที่สร้างเสร็จ" });
+    try {
+      return await reviseVideoPrompt(req.params.sceneId, req.params.clipCode, body.data);
+    } catch (error) {
+      if (error instanceof VideoPromptRevisionError || error instanceof ProjectActivityError) {
+        return reply.code(error.statusCode).send({ error: error.message });
+      }
+      throw error;
+    }
+  });
+
   // สร้าง prompt ทุก scene ของ episode พร้อมกัน (concurrency 2)
   app.post("/episodes/:id/generate-all-prompts", async (req, reply) => {
     const { id } = req.params as { id: string };

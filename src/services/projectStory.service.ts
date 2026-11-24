@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { callStructured, GeminiRequestError, LLMOutputValidationError } from "../llm/client.js";
+import { callStructured, GeminiRequestError, LLMOutputValidationError, LLMRequestError } from "../llm/client.js";
 import { loadPrompt } from "../llm/prompts.js";
 import { episodeParagraphs, storySectionsForEpisodes } from "../utils/storyParagraphs.js";
 import { isSpokenLine } from "../utils/dramaDialogue.js";
@@ -97,6 +97,10 @@ export async function prepareProjectEpisodes(title: string, language: string, so
     return { genre: genre ?? data.genre, drafts };
   } catch (error) {
     if (error instanceof ProjectStoryError) throw error;
+    if (error instanceof LLMRequestError) {
+      if (error.status === 422) throw new ProjectStoryError(422, "AI ไม่สามารถประมวลผลเนื้อเรื่องนี้ได้");
+      throw new ProjectStoryError(error.status === 429 ? 429 : 502, error.message);
+    }
     const status = error instanceof GeminiRequestError ? error.status :
       error && typeof error === "object" && "status" in error ? error.status : undefined;
     if (status === 429) throw new ProjectStoryError(429, "AI จำกัดโควตาชั่วคราว กรุณาลองใหม่ภายหลัง");

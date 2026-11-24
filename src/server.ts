@@ -18,6 +18,7 @@ import { promptRoutes } from "./routes/prompts.js";
 import { exportRoutes } from "./routes/export.js";
 import { qaRoutes } from "./routes/qa.js";
 import { runningHubRoutes } from "./routes/runningHub.js";
+import { imageReferenceRoutes } from "./routes/imageReferences.js";
 
 const ALLOWED_ORIGINS = [
   `http://localhost:${config.port}`,
@@ -66,6 +67,7 @@ export async function buildApp() {
   app.register(exportRoutes);
   app.register(qaRoutes);
   app.register(runningHubRoutes);
+  app.register(imageReferenceRoutes);
   app.register(import("@fastify/static").then(m => m.default), {
     root: path.join(config.dataDir, "assets"),
     prefix: "/generated-videos/",

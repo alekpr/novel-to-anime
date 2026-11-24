@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { DramaCameraAngle } from '../../../src/utils/dramaCamera'
 
 const api = axios.create({ baseURL: '/api' })
 
@@ -41,8 +42,9 @@ export interface Character {
   episodes: number[]
   appearance?: { hair?: string; skin?: string; eyes?: string; build?: string; defaultOutfit?: string; inferredFields?: string[] }
   appearanceBlock?: string
+  referenceWardrobe?: string
   characterSheetPrompt?: string
-  outfits?: { name: string; description: string; outfitPrompt?: string; outfitSheetPrompt?: string; usedInScenes?: string[] }[]
+  outfits?: { name: string; description: string; referenceAppearance?: string; outfitPrompt?: string; outfitSheetPrompt?: string; usedInScenes?: string[] }[]
   voice?: { gender?: string; pitch?: string; voicePrompt?: string }
 }
 
@@ -78,7 +80,10 @@ export interface Scene {
   totalDurationSec?: number
   shotCount?: number
   shotsApproved?: boolean
-  dramaBeat?: { entry: string; exit: string; dialoguePurpose?: string; clipDurationsSec?: number[] }
+  dramaBeat?: {
+    entry: string; exit: string; dialoguePurpose?: string; dialogueBudgetSec?: number
+    openingAngle?: DramaCameraAngle; closingAngle?: DramaCameraAngle; clipDurationsSec?: number[]
+  }
   clips?: Clip[]
   status: 'draft' | 'approved'
   characterIds: string[]
@@ -93,6 +98,7 @@ export interface Shot {
   shotCode: string
   shotType: string
   camera: string
+  cameraAngle?: DramaCameraAngle
   durationSec: number
   action: string
   characterIds?: (string | { _id: string; name: string })[]
@@ -107,6 +113,13 @@ export interface Clip {
   startOffsetSec: number
   videoPrompt: string
   promptVersion: number
+  promptRevision?: {
+    comment: string
+    updatedAt: string
+    sourceJobId: string
+    sourceVideoCount: number
+    sourcePromptVersion?: number
+  }
   stale?: boolean
   referenceSlots?: { index: number; name: string; role: 'character' | 'location'; resourceKey?: string }[]
 }
@@ -182,6 +195,8 @@ export const scenesApi = {
 }
 
 // Shots
+export const shotApprovalKey = (episodeId: string) => ['approve-scene-shots', episodeId]
+
 export const shotsApi = {
   list: (sceneId: string) => api.get<Shot[]>(`/scenes/${sceneId}/shots`).then(r => r.data),
   update: (id: string, data: Partial<Shot>) => api.patch<Shot>(`/shots/${id}`, data).then(r => r.data),
@@ -189,7 +204,11 @@ export const shotsApi = {
     api.patch<Shot>(`/shots/${id}/dialogue/${idx}`, data).then(r => r.data),
   reviewAll: (id: string) => api.post<Shot>(`/shots/${id}/review-dialogue`).then(r => r.data),
   generateDialogue: (id: string) => api.post<Shot>(`/shots/${id}/generate-dialogue`).then(r => r.data),
-  approveScene: (sceneId: string) => api.post<{ shotCount: number }>(`/scenes/${sceneId}/approve-shots`).then(r => r.data),
+  approveScene: (sceneId: string) => api.post<{
+    shotCount: number
+    promptStatus: 'updated' | 'unchanged' | 'failed'
+    promptError?: string
+  }>(`/scenes/${sceneId}/approve-shots`).then(r => r.data),
   generateForScene: (sceneId: string) => api.post(`/scenes/${sceneId}/generate-shots`).then(r => r.data),
 }
 
@@ -207,6 +226,9 @@ export const promptsApi = {
       `/episodes/${episodeId}/generate-all-prompts`).then(r => r.data),
   getClips: (sceneId: string) =>
     api.get<{ clips: Clip[] }>(`/scenes/${sceneId}/clips`).then(r => r.data),
+  reviseClip: (sceneId: string, clipCode: string, input: { comment: string; promptVersion: number; sourceJobId: string }) =>
+    api.post<Pick<Clip, 'videoPrompt' | 'promptVersion' | 'promptRevision'>>(
+      `/scenes/${sceneId}/clips/${encodeURIComponent(clipCode)}/revise-prompt`, input).then(r => r.data),
 }
 
 export default api

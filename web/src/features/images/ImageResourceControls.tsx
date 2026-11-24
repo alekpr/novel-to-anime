@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { EpisodeImageResources } from './useImageResources'
+import { referenceUpdateKey, updateReferencePrompt } from './updateReferencePrompt'
 
 const actionButton = 'rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-blue-50 disabled:opacity-40'
 const folderMessages: Partial<Record<EpisodeImageResources['folderStatus'], string>> = {
@@ -147,9 +149,33 @@ function ReferenceImagePreview({ file }: { file: File }) {
 }
 
 export function ImageResourceSlot({ slotKey, resources }: { slotKey: string; resources: EpisodeImageResources }) {
+  const qc = useQueryClient()
+  const { projectId } = resources
   const reference = resources.references[slotKey]
   const file = reference?.status === 'ready' ? reference.file : undefined
-  const busy = resources.busy !== null
+  const mutationKey = referenceUpdateKey(projectId)
+  const updatingRef = useIsMutating({ mutationKey }) > 0
+  const updateRef = useMutation({
+    mutationKey: [...mutationKey, slotKey],
+    mutationFn: () => updateReferencePrompt(projectId, slotKey),
+    onSuccess: ({ promptUpdates }) => {
+      const episodeIds = new Set(promptUpdates.map(update => update.episodeId))
+      return Promise.all([
+        qc.invalidateQueries({ queryKey: ['characters', projectId] }),
+        qc.invalidateQueries({ queryKey: ['locations', projectId] }),
+        ...promptUpdates.map(update => qc.invalidateQueries({ queryKey: ['scene-clips', update.sceneId] })),
+        ...[...episodeIds].flatMap(id => [
+          qc.invalidateQueries({ queryKey: ['scenes', id] }),
+          qc.invalidateQueries({ queryKey: ['episode-status', id] }),
+        ]),
+        ...(episodeIds.size > 0 ? [qc.invalidateQueries({ queryKey: ['episodes', projectId] })] : []),
+      ])
+    },
+  })
+  const busy = resources.busy !== null || updateRef.isPending
+  const promptUpdates = updateRef.data?.promptUpdates ?? []
+  const failed = promptUpdates.filter(update => update.error)
+  const updated = promptUpdates.length - failed.length
   return (
     <div className="mt-2 flex flex-wrap items-start gap-3 rounded-lg border bg-white p-3">
       {file && <ReferenceImagePreview file={file} />}
@@ -170,14 +196,41 @@ export function ImageResourceSlot({ slotKey, resources }: { slotKey: string; res
               onClick={() => void resources.reconnectImage(slotKey)}>อนุญาตเปิดภาพ</button>
           )}
           <button type="button" className={actionButton} disabled={busy || !resources.canAttach}
-            onClick={() => void resources.selectImage(slotKey)}>
+            onClick={async () => { if (await resources.selectImage(slotKey)) updateRef.reset() }}>
             {resources.busy === slotKey ? 'กำลังเชื่อม…' : reference ? 'เปลี่ยนภาพ' : 'เลือกภาพ'}
           </button>
+          {file && (
+            <button type="button" className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+              title="วิเคราะห์ภาพและสร้าง Video Prompt ใหม่สำหรับซีนที่ใช้ภาพนี้" disabled={busy || updatingRef} onClick={() => updateRef.mutate()}>
+              อัปเดต Ref
+            </button>
+          )}
           {reference && (
             <button type="button" className="px-1 py-1.5 text-xs text-slate-600 hover:underline disabled:opacity-40" disabled={busy}
-              onClick={() => void resources.removeImage(slotKey)}>เลิกเชื่อมภาพ</button>
+              onClick={async () => { if (await resources.removeImage(slotKey)) updateRef.reset() }}>เลิกเชื่อมภาพ</button>
           )}
         </div>
+        {updateRef.isPending && (
+          <p role="status" className="flex items-center gap-2 text-xs text-blue-700">
+            <span aria-hidden="true" className="size-3 animate-spin rounded-full border-2 border-current border-r-transparent" />
+            กำลังอ่านภาพและรีเฟรช Video Prompt ของซีนที่ใช้ภาพนี้…
+          </p>
+        )}
+        {updateRef.isError && <p role="alert" className="text-xs text-red-700">{updateRef.error.message}</p>}
+        {updateRef.isSuccess && (
+          <p role="status" className="text-xs text-green-700">
+            อัปเดต Ref แล้ว
+            {updated > 0 && ` · Video Prompt ใหม่ ${updated} ซีน ดูได้ในขั้น 7`}
+            {promptUpdates.length === 0 && ' · ยังไม่มี Video Prompt ที่ใช้ภาพนี้'}
+          </p>
+        )}
+        {failed.length > 0 && (
+          <ul role="alert" className="space-y-0.5 text-xs text-amber-800">
+            {failed.map(update => (
+              <li key={update.sceneId}>{update.sceneCode} · {update.error}</li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   )

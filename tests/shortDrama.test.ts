@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { assembleShortDramaH3 } from "../src/templates/shortDramaH3.js";
 import { characterReferenceSheet, locationReferenceSheet } from "../src/templates/referenceSheet.js";
 import { DRAMA_EP_SECONDS, alignDramaShotTiming, fitsDramaScene, hasInvalidDramaScenes, minimumDramaSceneCount } from "../src/utils/shortDrama.js";
+import { usesLatinVideoPrompt } from "../src/utils/videoPromptLanguage.js";
+import { cameraAngleFromDirection, distinctDramaAngles } from "../src/utils/dramaCamera.js";
 
 describe("Thai short drama", () => {
   it("keeps the one-minute default and rejects invalid shot timing", () => {
@@ -50,14 +52,27 @@ describe("Thai short drama", () => {
       blocking: "Stay on the same axis.",
       soundAndEditing: "Carry over room tone.",
       references: [],
-      shots: [{ durationSec: 2.4, direction: "CU.", dialogue: [] }, { durationSec: 3.6, direction: "Reverse.", dialogue: [] }],
+      shots: [
+        { durationSec: 2.4, cameraAngle: "frontal", direction: "CU.", dialogue: [] },
+        { durationSec: 3.6, cameraAngle: "side-profile", direction: "Reverse.", dialogue: [] },
+      ],
     });
     expect(prompt).toMatch(/^6 seconds, vertical/);
-    expect(prompt).toContain("[Shot 2] 00:02.400–00:06.000.");
+    expect(prompt).toContain("[Shot 2] 00:02.400–00:06.000. Camera angle: side-profile.");
     expect(prompt).toContain("End at 00:06.000.");
   });
 
-  it("binds Thai lines to speaker order independently of picture order", () => {
+  it("requires a clearly changed viewpoint at the scene boundary", () => {
+    expect(cameraAngleFromDirection("ภาพใกล้ มุมหน้าตรง 50 มม.")).toBe("frontal");
+    expect(cameraAngleFromDirection("Wide from front, head-on")).toBe("frontal");
+    expect(distinctDramaAngles("frontal", "frontal")).toBe(false);
+    expect(distinctDramaAngles("frontal", "three-quarter")).toBe(false);
+    expect(distinctDramaAngles("overhead", "high-angle")).toBe(false);
+    expect(distinctDramaAngles("frontal", "side-profile")).toBe(true);
+    expect(distinctDramaAngles("side-profile", "low-angle")).toBe(true);
+  });
+
+  it("keeps each line in its spoken language and binds speakers independently of picture order", () => {
     const { prompt, references } = assembleShortDramaH3({
       overview: "Start on her reaction.",
       blocking: "Win stays screen left.",
@@ -69,18 +84,30 @@ describe("Thai short drama", () => {
       ],
       shots: [
         { durationSec: 0.6, direction: "CU of lace.", dialogue: [] },
-        { durationSec: 4.4, direction: "Cut to Fah.", dialogue: [{ subject: 2, text: "ออกเลยค่ะ", tone: "Soft" }] },
-        { durationSec: 6, direction: "Reverse to Win.", dialogue: [{ subject: 1, text: "จะไปไหนครับ?", tone: "Curious" }] },
-        { durationSec: 4, direction: "Cut to Fah.", dialogue: [{ subject: 2, text: "เดี๋ยวบอกค่ะ", tone: "Direct" }] },
+        { durationSec: 4.4, direction: "Cut to Fah.", dialogue: [{ subject: 2, text: "ออกเลยค่ะ", language: "Thai", delivery: "in a low, steady voice" }] },
+        { durationSec: 6, direction: "Reverse to Win.", dialogue: [{ subject: 1, text: "Where are we going?", language: "English", delivery: "" }] },
+        { durationSec: 4, direction: "Cut to Fah.", dialogue: [{ subject: 2, text: "すぐわかるよ。", language: "Japanese", delivery: "in a firm voice" }] },
       ],
     });
     expect(references.map(ref => [ref.index, ref.name])).toEqual([[1, "วิน"], [2, "ฟ้า"], [3, "รถตู้"]]);
     expect(prompt).toContain("<Subject 2>: <Picture 2>[Fah in the ivory gown]");
-    expect(prompt).toContain("S1 is ฟ้า, <Subject 2>. Speaks only in Shot 2, 4.");
-    expect(prompt).toContain("<Subject 1> (S2): <d>[Thai] จะไปไหนครับ?</d>");
+    expect(prompt).toContain("<Subject 2> (S1) speaks only in [Shot 2], [Shot 4].");
+    expect(prompt).toContain("<Subject 2> (S1) says in a low, steady voice: <d>[Thai] ออกเลยค่ะ</d>");
+    expect(prompt).toContain("<Subject 1> (S2) says: <d>[English] Where are we going?</d>");
+    expect(prompt).toContain("<Subject 2> (S1) says in a firm voice: <d>[Japanese] すぐわかるよ。</d>");
+    expect(prompt).toContain("Keep all production directions unspoken.");
+    expect(prompt).not.toContain("Vocal direction:");
+    expect(usesLatinVideoPrompt(prompt)).toBe(true);
     expect(prompt).toContain("[Shot 2] 00:00.600–00:05.000.");
     expect(prompt).toContain("[Shot 4] 00:11.000–00:15.000.");
     expect(prompt).toContain("BACKGROUND ACTIVITY, SOUND AND EDITING");
+  });
+
+  it("detects non-Latin text in references, directions and malformed dialogue tags", () => {
+    expect(usesLatinVideoPrompt("<Subject 1>: <Picture 1>[วิน in blue plaid]")).toBe(false);
+    expect(usesLatinVideoPrompt("[Shot 1] ショット。\n<d>[Thai] ไปกันเถอะ</d>")).toBe(false);
+    expect(usesLatinVideoPrompt("Keep the eyeline.\n<d>[Thai] ไปกันเถอะ")).toBe(false);
+    expect(usesLatinVideoPrompt("Keep the eyeline.\n<d><d>[Thai] ไปกันเถอะ</d></d>")).toBe(false);
   });
 
   it("builds shots of the same outfit and maps spatial continuity in 2×2 references", () => {
