@@ -3,6 +3,7 @@ import { runBibleExtraction } from "../services/bible.service.js";
 import { runSceneBreakdown } from "../services/scene.service.js";
 import { runShotList } from "../services/shot.service.js";
 import { runQA } from "../services/qa.service.js";
+import { holdProjectActivity } from "../services/projectLifecycle.service.js";
 import { queues } from "./jobRunner.js";
 
 type Stage = "S1" | "S2" | "S3" | "S5";
@@ -12,9 +13,6 @@ export async function dispatchJob(
   episodeId: string,
   stage: Stage
 ): Promise<string> {
-  const job = await Job.create({ projectId, episodeId, stage, status: "queued" });
-  const jobId = job._id.toString();
-
   const queueMap: Record<Stage, typeof queues.bible> = {
     S1: queues.bible,
     S2: queues.scenes,
@@ -38,19 +36,26 @@ export async function dispatchJob(
     },
   };
 
-  queueMap[stage].add(async () => {
-    try {
-      await runnerMap[stage](projectId, episodeId, jobId);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[dispatcher] stage=${stage} FAILED:`, err);
-      await Job.findByIdAndUpdate(jobId, {
-        status: "failed",
-        error: msg,
-        finishedAt: new Date(),
-      });
-    }
-  });
-
-  return jobId;
+  const release = await holdProjectActivity(projectId);
+  try {
+    const job = await Job.create({ projectId, episodeId, stage, status: "queued" });
+    const jobId = job._id.toString();
+    void queueMap[stage].add(async () => {
+      try {
+        await runnerMap[stage](projectId, episodeId, jobId);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[dispatcher] stage=${stage} FAILED:`, err);
+        await Job.findByIdAndUpdate(jobId, {
+          status: "failed",
+          error: msg,
+          finishedAt: new Date(),
+        });
+      }
+    }).catch(error => console.error(`[dispatcher] job ${jobId} could not be finalized:`, error)).finally(release);
+    return jobId;
+  } catch (error) {
+    release();
+    throw error;
+  }
 }

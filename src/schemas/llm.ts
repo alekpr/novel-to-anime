@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DRAMA_CAMERA_ANGLES } from "../utils/dramaCamera.js";
 
 // ---- S1: Story Bible Extraction ----
 
@@ -124,6 +125,14 @@ export const LLMScene = z.object({
   fromParagraph: z.number().int().min(0),
   toParagraph: z.number().int().min(0),
   estDurationSec: z.number().positive().default(30),
+  entry: z.string().trim().default(""),
+  exit: z.string().trim().default(""),
+  dialoguePurpose: z.string().trim().default(""),
+  dialogueBudgetSec: z.number().min(0).optional(),
+  openingAngle: z.enum(DRAMA_CAMERA_ANGLES).optional(),
+  closingAngle: z.enum(DRAMA_CAMERA_ANGLES).optional(),
+  supportingLocations: z.array(z.string()).default([]),
+  wardrobe: z.record(z.string(), z.string()).default({}),
 });
 
 export const SceneBreakdownResult = z.object({
@@ -141,6 +150,13 @@ export const LLMDialogueLine = z.object({
   source: z.string().transform((v) => (v === "generated" ? "generated" : "original")).pipe(z.enum(["original", "generated"])).catch("original"),
 });
 
+export const ShotDirection = z.object({
+  blocking: z.string().trim().min(1),
+  performance: z.string().trim().min(1),
+  cut: z.string().trim().min(1),
+  backgroundActivity: z.string().trim().min(1),
+});
+
 export const LLMShot = z.object({
   order: z.number().int().positive(),
   shotType: z.string().transform((v) => {
@@ -148,12 +164,14 @@ export const LLMShot = z.object({
     return valid.includes(v) ? v : "medium";
   }).pipe(z.enum(["wide", "medium", "close-up", "medium-long", "insert", "establishing", "OTS", "POV"])).catch("medium"),
   camera: z.union([z.string(), z.null()]).transform(v => v ?? "").pipe(z.string()).catch(""),
-  durationSec: z.number().min(1).max(20).default(4),
+  cameraAngle: z.enum(DRAMA_CAMERA_ANGLES).optional(),
+  durationSec: z.number().min(0.5).max(20).default(4),
   breakQuality: z.string().transform((v) => (["hard", "soft", "avoid"].includes(v) ? v : "soft")).pipe(z.enum(["hard", "soft", "avoid"])).catch("soft"),
   characterNames: z.array(z.string()).catch([]),
   propNames: z.array(z.string()).default([]),
   action: z.union([z.string(), z.null()]).transform(v => v ?? "").pipe(z.string()).catch(""),
   emotion: z.union([z.string(), z.null()]).transform(v => v ?? "").pipe(z.string()).catch(""),
+  direction: ShotDirection.optional(),
   dialogue: z.array(LLMDialogueLine).default([]),
   narration: z.union([z.string(), z.null()]).nullable().default(null),
   sfx: z.union([z.string(), z.null()]).transform(v => v ?? "").pipe(z.string()).catch(""),

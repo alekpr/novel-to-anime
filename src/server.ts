@@ -19,6 +19,8 @@ import { exportRoutes } from "./routes/export.js";
 import { qaRoutes } from "./routes/qa.js";
 import { propRoutes } from "./routes/props.js";
 import { optimizeRoutes } from "./routes/optimize.js";
+import { runningHubRoutes } from "./routes/runningHub.js";
+import { imageReferenceRoutes } from "./routes/imageReferences.js";
 
 const ALLOWED_ORIGINS = [
   `http://localhost:${config.port}`,
@@ -30,7 +32,15 @@ const ALLOWED_ORIGINS = [
 ];
 
 export async function buildApp() {
-  const app = Fastify({ logger: { transport: { target: "pino-pretty" } } });
+  const apiRequests = new WeakSet<object>();
+  const app = Fastify({
+    logger: { transport: { target: "pino-pretty" } },
+    rewriteUrl: req => {
+      const url = req.url ?? "/";
+      if (url.startsWith("/api/")) apiRequests.add(req);
+      return url.replace(/^\/api(?=\/)/, "");
+    },
+  });
 
   // ตรวจ Host/Origin เพื่อป้องกัน DNS rebinding (หัวข้อ 18.6)
   app.addHook("onRequest", async (req, reply) => {
@@ -60,6 +70,13 @@ export async function buildApp() {
   app.register(qaRoutes);
   app.register(propRoutes);
   app.register(optimizeRoutes);
+  app.register(runningHubRoutes);
+  app.register(imageReferenceRoutes);
+  app.register(import("@fastify/static").then(m => m.default), {
+    root: path.join(config.dataDir, "assets"),
+    prefix: "/generated-videos/",
+    decorateReply: false,
+  });
 
   // เสิร์ฟ web build (web/dist) ถ้ามี
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -70,7 +87,7 @@ export async function buildApp() {
       prefix: "/",
     });
     app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith("/api/")) {
+      if (apiRequests.has(req.raw)) {
         return reply.code(404).send({ error: "Not found" });
       }
       reply.sendFile("index.html");

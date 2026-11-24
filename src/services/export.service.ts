@@ -14,6 +14,8 @@ type ClipDoc = {
   durationSec: number;
   videoPrompt: string;
   promptVersion: number;
+  stale?: boolean;
+  referenceSlots?: { index: number; name: string }[];
 };
 
 type ShotDoc = {
@@ -25,6 +27,7 @@ type ShotDoc = {
   durationSec: number;
   action?: string;
   emotion?: string;
+  direction?: { blocking: string; performance: string; cut: string; backgroundActivity: string };
   narration?: string | null;
   sfx?: string;
   music?: string;
@@ -100,6 +103,12 @@ export async function exportEpisode(
           if (sh.camera) lines.push(`- กล้อง: ${sh.camera}`);
           if (sh.action) lines.push(`- การกระทำ: ${sh.action}`);
           if (sh.emotion) lines.push(`- อารมณ์: ${sh.emotion}`);
+          if (sh.direction) {
+            lines.push(`- ตำแหน่งและทิศมอง: ${sh.direction.blocking}`);
+            lines.push(`- การแสดง: ${sh.direction.performance}`);
+            lines.push(`- จังหวะตัด: ${sh.direction.cut}`);
+            lines.push(`- Background Activity: ${sh.direction.backgroundActivity}`);
+          }
           if (sh.narration) lines.push(`- Narration: ${sh.narration}`);
           for (const d of sh.dialogue) {
             const speaker = charNameMap.get(d.speakerId?.toString() ?? "") ?? d.speakerId ?? "?";
@@ -129,7 +138,11 @@ export async function exportEpisode(
         lines.push("### Video Prompts (Clips)\n");
         for (const clip of scene.clips) {
           lines.push(`#### ${clip.clipCode} [${clip.durationSec}s] (v${clip.promptVersion})`);
-          if (clip.videoPrompt) {
+          if (clip.stale) {
+            lines.push("_(ช็อตเปลี่ยนแล้ว กรุณาอนุมัติและสร้างพรอมป์ใหม่)_");
+          } else if (clip.videoPrompt) {
+            for (const ref of clip.referenceSlots ?? []) lines.push(`- Picture ${ref.index} · ${ref.name}`);
+            if (clip.referenceSlots?.length) lines.push("");
             lines.push(`\`\`\`\n${clip.videoPrompt}\n\`\`\``);
           } else {
             lines.push("_(ยังไม่มี prompt — รัน Generate Prompt ก่อน)_");

@@ -67,12 +67,8 @@ export async function runBibleExtraction(
   await mergeFactions(projectId, data.factions ?? [], existingFactions);
   await mergeProps(projectId, episode.number, data.props ?? [], existingChars);
 
-  if (data.episodeSummary) {
-    await Episode.findByIdAndUpdate(episodeId, {
-      summary: data.episodeSummary,
-      status: "bible_review",
-    });
-  }
+  if (data.episodeSummary) await Episode.updateOne({ _id: episodeId }, { $set: { summary: data.episodeSummary } });
+  await Episode.updateOne({ _id: episodeId, status: "ingested" }, { $set: { status: "bible_review" } });
 
   await Job.findByIdAndUpdate(jobId, {
     status: "succeeded",
@@ -341,14 +337,14 @@ function buildBibleContext(
 
 function buildS1Prompt(epNumber: number, title: string, bibleContext: string, novelText: string): string {
   return `
-## Existing Bible (do not duplicate these)
+## Existing Bible (reuse names for recurring characters and locations)
 ${bibleContext}
 
 ## Novel text EP ${epNumber}: ${title}
 ${novelText}
 
 ## Instructions
-- Extract ALL new characters, locations, factions, and props from this episode
+- Extract ALL new characters, locations, factions, and props from this episode — including monsters, creatures, beasts, demons, or spirits (use role: "monster")
 - For existing characters (listed above): include them ONLY if they appear in a NEW outfit not listed in [known outfits]. Include only the new outfit(s) in their outfits array
 - Extract ALL factions/groups that share a costume (sect ranks, unit types, etc.)
 - Extract ALL significant props: weapons, artifacts, key items that appear in multiple scenes or are plot-critical — skip generic background items
