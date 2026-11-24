@@ -67,12 +67,8 @@ export async function runBibleExtraction(
   await mergeFactions(projectId, data.factions ?? [], existingFactions);
   await mergeProps(projectId, episode.number, data.props ?? [], existingChars);
 
-  if (data.episodeSummary) {
-    await Episode.findByIdAndUpdate(episodeId, {
-      summary: data.episodeSummary,
-      status: "bible_review",
-    });
-  }
+  if (data.episodeSummary) await Episode.updateOne({ _id: episodeId }, { $set: { summary: data.episodeSummary } });
+  await Episode.updateOne({ _id: episodeId, status: "ingested" }, { $set: { status: "bible_review" } });
 
   await Job.findByIdAndUpdate(jobId, {
     status: "succeeded",
@@ -331,7 +327,8 @@ function buildBibleContext(
   if (chars.length === 0 && locs.length === 0 && factions.length === 0 && props.length === 0) return "(no existing Bible)";
   const charList = chars.map((c) => {
     const outfits = c.outfitNames.length > 0 ? ` [known outfits: ${c.outfitNames.join(", ")}]` : "";
-    return `- ${c.name}${outfits}`;
+    const aliases = c.aliases?.length ? ` | aka ${c.aliases.join(", ")}` : "";
+    return `- ${c.name}${aliases}${outfits}`;
   }).join("\n");
   const locList = locs.map((l) => `- ${l.name}`).join("\n");
   const facList = factions.map((f) => `- ${f.name}: ${f.costumePrompt}`).join("\n");
@@ -341,7 +338,7 @@ function buildBibleContext(
 
 function buildS1Prompt(epNumber: number, title: string, bibleContext: string, novelText: string): string {
   return `
-## Existing Bible (do not duplicate these)
+## Existing Bible (reuse names for recurring characters and locations)
 ${bibleContext}
 
 ## Novel text EP ${epNumber}: ${title}
@@ -349,7 +346,7 @@ ${novelText}
 
 ## Instructions
 - Extract ALL new characters, locations, factions, and props from this episode
-- For existing characters (listed above): include them ONLY if they appear in a NEW outfit not listed in [known outfits]. Include only the new outfit(s) in their outfits array
+- For existing characters (listed above): include them ONLY if they appear in a NEW outfit not listed in [known outfits]. Include only the new outfit(s) in their outfits array. Also return any existing character/location used in this episode (with exact Bible name) so it can be linked to this episode.
 - Extract ALL factions/groups that share a costume (sect ranks, unit types, etc.)
 - Extract ALL significant props: weapons, artifacts, key items that appear in multiple scenes or are plot-critical — skip generic background items
 - For appearance fields (hair/skin/eyes/build/distinguishing/defaultOutfit): NEVER output "unknown" — always infer a reasonable value and add the field to inferredFields

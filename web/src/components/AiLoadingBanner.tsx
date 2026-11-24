@@ -3,13 +3,15 @@ import type { Job } from '../lib/api'
 interface Props {
   job: Job | null
   label?: string
+  pending?: boolean
 }
 
-export function AiLoadingBanner({ job, label = 'กำลังประมวลผล' }: Props) {
-  if (!job || (job.status !== 'running' && job.status !== 'queued' && job.status !== 'succeeded')) return null
-  const pct = Math.round((job.progress ?? 0) * 100)
+export function AiLoadingBanner({ job, label = 'กำลังประมวลผล', pending = false }: Props) {
+  if (!pending && !job) return null
+  if (!pending && job?.status !== 'running' && job?.status !== 'queued' && job?.status !== 'succeeded') return null
+  const pct = Math.round((job?.progress ?? 0) * 100)
   const isIndeterminate = pct === 0
-  const isDone = job.status === 'succeeded'
+  const isDone = job?.status === 'succeeded'
 
   return (
     <div className={`border rounded-lg px-4 py-4 space-y-3 ${isDone ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
@@ -27,7 +29,7 @@ export function AiLoadingBanner({ job, label = 'กำลังประมว�
           <div className={`text-sm font-medium ${isDone ? 'text-green-800' : 'text-blue-800'}`}>
             {isDone ? `${label} — เสร็จแล้ว` : `${label}…`}
           </div>
-          {!isDone && job.statusMessage && (
+          {job?.statusMessage && (
             <div className="text-xs text-blue-600 mt-0.5 truncate">{job.statusMessage}</div>
           )}
         </div>

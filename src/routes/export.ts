@@ -1,7 +1,7 @@
 import { FastifyInstance } from "fastify";
 import fs from "fs";
-import path from "path";
 import { exportEpisode } from "../services/export.service.js";
+import { withProjectActivity } from "../services/projectLifecycle.service.js";
 
 const MIME: Record<string, string> = {
   json: "application/json",
@@ -21,21 +21,19 @@ export async function exportRoutes(app: FastifyInstance) {
     const episode = await import("../models/Episode.js").then((m) => m.Episode.findById(id).lean());
     if (!episode) return reply.code(404).send({ error: "Episode not found" });
 
-    const filePath = await exportEpisode(
-      episode.projectId.toString(),
-      id,
-      format as "json" | "md" | "csv"
-    );
+    const projectId = episode.projectId.toString();
+    return withProjectActivity(projectId, async () => {
+      const filePath = await exportEpisode(projectId, id, format as "json" | "md" | "csv");
 
-    const filename = path.basename(filePath);
-    const epCode = `EP${String(episode.number).padStart(2, "0")}`;
-    const downloadName = `${epCode}-export.${format}`;
+      const epCode = `EP${String(episode.number).padStart(2, "0")}`;
+      const downloadName = `${epCode}-export.${format}`;
 
-    reply
-      .header("Content-Type", MIME[format])
-      .header("Content-Disposition", `attachment; filename="${downloadName}"`)
-      .header("Content-Length", fs.statSync(filePath).size);
+      reply
+        .header("Content-Type", MIME[format])
+        .header("Content-Disposition", `attachment; filename="${downloadName}"`)
+        .header("Content-Length", fs.statSync(filePath).size);
 
-    return reply.send(fs.createReadStream(filePath));
+      return reply.send(fs.createReadStream(filePath));
+    });
   });
 }

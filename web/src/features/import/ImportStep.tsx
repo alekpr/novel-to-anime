@@ -1,15 +1,18 @@
 import { useState } from 'react'
 import { episodesApi } from '../../lib/api'
+import type { Episode } from '../../lib/api'
 
 interface Props {
   projectId: string
+  initialEpisode?: Episode
   onDone: (episodeId: string) => void
 }
 
-export function ImportStep({ projectId, onDone }: Props) {
-  const [number, setNumber] = useState(1)
-  const [title, setTitle] = useState('')
-  const [text, setText] = useState('')
+export function ImportStep({ projectId, initialEpisode, onDone }: Props) {
+  const initialText = initialEpisode?.paragraphs.map(paragraph => paragraph.text).join('\n\n') ?? ''
+  const [number, setNumber] = useState(initialEpisode?.number ?? 1)
+  const [title, setTitle] = useState(initialEpisode?.title ?? '')
+  const [text, setText] = useState(initialText)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -18,6 +21,10 @@ export function ImportStep({ projectId, onDone }: Props) {
 
   async function handleSubmit() {
     if (!text.trim()) return
+    if (initialEpisode && text === initialText && title === initialEpisode.title) {
+      onDone(initialEpisode._id)
+      return
+    }
     setLoading(true)
     setError('')
     try {
@@ -40,13 +47,13 @@ export function ImportStep({ projectId, onDone }: Props) {
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-4">
-      <h2 className="text-xl font-semibold">ขั้น 1 – นำเข้านิยาย</h2>
+      <h2 className="text-xl font-semibold">{initialEpisode ? `ตรวจเนื้อหา EP ${initialEpisode.number}` : 'ขั้น 1 – นำเข้านิยาย'}</h2>
 
       <div className="flex gap-4">
         <label className="flex flex-col gap-1 flex-1">
           <span className="text-sm font-medium">หมายเลขตอน</span>
           <input
-            type="number" min={1} value={number}
+            type="number" min={1} value={number} disabled={!!initialEpisode}
             onChange={e => setNumber(+e.target.value)}
             className="border rounded px-3 py-2 w-24"
           />

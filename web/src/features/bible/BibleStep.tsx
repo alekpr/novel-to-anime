@@ -3,13 +3,16 @@ import { useEffect, useRef, useState } from 'react'
 import { AiLoadingBanner } from '../../components/AiLoadingBanner'
 import { BadgeSource } from '../../components/BadgeSource'
 import { JobProgressPanel } from '../../components/JobProgressPanel'
-import { useJobStream } from '../../hooks/useJobStream'
+import { useJobProgress } from '../../hooks/useJobProgress'
 import { charactersApi, episodesApi, factionsApi, locationsApi, propsApi } from '../../lib/api'
 import type { Character, Faction, Location, PropObject } from '../../lib/api'
+import type { EpisodeStatusResult } from '../../hooks/useEpisodeStatus'
 
 interface Props {
   projectId: string
   episodeId: string
+  statusData?: EpisodeStatusResult
+  statusLoadFailed: boolean
   onDone: () => void
 }
 
@@ -39,7 +42,7 @@ function EditableField({ label, value, onSave }: { label: string; value: string;
   )
 }
 
-function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, onFixUnknown, currentEp, showAll }: {
+function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, onFixUnknown, currentEp, inCurrentEp, showAll }: {
   char: Character
   onApprove: () => void
   onUpdate: (data: Partial<Character>) => void
@@ -48,12 +51,14 @@ function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, 
   onReset: () => void
   onFixUnknown: () => void
   currentEp: number
+  inCurrentEp: boolean
   showAll?: boolean
 }) {
   const [open, setOpen] = useState(char.status !== 'approved')
   const [regenLoading, setRegenLoading] = useState(false)
   const inferred = char.appearance?.inferredFields ?? []
   const outfits = char.outfits ?? []
+  const appearanceEpisodes = [...new Set([...(char.episodes ?? []), ...(inCurrentEp && currentEp ? [currentEp] : [])])]
   const hasUnknown = char.appearance && Object.entries(char.appearance)
     .some(([k, v]) => k !== 'inferredFields' && String(v).toLowerCase() === 'unknown')
   // outfit ที่เพิ่งเข้ามาใน EP นี้ = usedInScenes ว่าง (ยังไม่ได้ assign) หรือดูจาก episodes
@@ -69,9 +74,9 @@ function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, 
             {char.role}
           </span>
           {char.needsReview && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">⚠ ต้องตรวจ</span>}
-          {showAll && char.episodes && char.episodes.length > 0 && (
+          {showAll && appearanceEpisodes.length > 0 && (
             <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
-              EP {char.episodes.slice().sort((a,b) => a-b).join(', ')}
+              EP {appearanceEpisodes.sort((a, b) => a - b).join(', ')}
             </span>
           )}
           {outfits.length > 0 && <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">{outfits.length} ชุด</span>}
@@ -310,14 +315,14 @@ function AddFactionModal({ onClose, onSave }: { onClose: () => void; onSave: (f:
   )
 }
 
-export function BibleStep({ projectId, episodeId, onDone }: Props) {
+export function BibleStep({ projectId, episodeId, statusData, statusLoadFailed, onDone }: Props) {
   const qc = useQueryClient()
   const [tab, setTab] = useState<'chars' | 'locs' | 'factions' | 'props'>('chars')
   const [showAll, setShowAll] = useState(false)
   const [showAddFaction, setShowAddFaction] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const jobIdRef = useRef<string | null>(null)
-  const streamJob = useJobStream(jobId)
+  const streamJob = useJobProgress(jobId)
 
   const { data: episode } = useQuery({
     queryKey: ['episode', episodeId],
@@ -342,12 +347,14 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
     queryFn: () => propsApi.list(projectId),
   })
 
-  const chars = showAll || !currentEp ? allChars : allChars.filter(c => c.episodes?.includes(currentEp))
-  const locs = showAll || !currentEp ? allLocs : allLocs.filter(l => l.episodes?.includes(currentEp))
+  const characterIds = new Set(statusData?.bible?.characterIds)
+  const locationIds = new Set(statusData?.bible?.locationIds)
+  const chars = showAll ? allChars : allChars.filter(c => characterIds.has(c._id))
+  const locs = showAll ? allLocs : allLocs.filter(l => locationIds.has(l._id))
 
   const runS1 = useMutation({
     mutationFn: () => episodesApi.runStage(episodeId, 'S1'),
-    onSuccess: (job) => { jobIdRef.current = job._id; setJobId(job._id) },
+    onSuccess: (id) => { jobIdRef.current = id; setJobId(id) },
   })
 
   useEffect(() => {
@@ -357,29 +364,38 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
       qc.invalidateQueries({ queryKey: ['locations', projectId] })
       qc.invalidateQueries({ queryKey: ['factions', projectId] })
       qc.invalidateQueries({ queryKey: ['props', projectId] })
+      qc.invalidateQueries({ queryKey: ['episode-status', episodeId] })
+      jobIdRef.current = null
       setTimeout(() => setJobId(null), 1500)
     }
-  }, [streamJob?.status, projectId, qc])
+  }, [streamJob?.status, projectId, episodeId, qc])
+
+  function refreshBible(key: 'characters' | 'locations') {
+    return Promise.all([
+      qc.invalidateQueries({ queryKey: [key, projectId] }),
+      qc.invalidateQueries({ queryKey: ['episode-status', episodeId] }),
+    ])
+  }
 
   const approveChar = useMutation({
     mutationFn: (id: string) => charactersApi.approve(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['characters', projectId] }),
+    onSuccess: () => refreshBible('characters'),
   })
   const approveLoc = useMutation({
     mutationFn: (id: string) => locationsApi.approve(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['locations', projectId] }),
+    onSuccess: () => refreshBible('locations'),
   })
   const updateChar = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Character> }) => charactersApi.update(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['characters', projectId] }),
+    onSuccess: () => refreshBible('characters'),
   })
   const updateLoc = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Location> }) => locationsApi.update(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['locations', projectId] }),
+    onSuccess: () => refreshBible('locations'),
   })
   const deleteChar = useMutation({
     mutationFn: (id: string) => charactersApi.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['characters', projectId] }),
+    onSuccess: () => refreshBible('characters'),
   })
   const regenerateChar = useMutation({
     mutationFn: (id: string) => charactersApi.regenerateAppearance(id),
@@ -418,9 +434,14 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['props', projectId] }),
   })
 
-  const needsReviewChars = chars.filter(c => (c as any).needsReview)
-  const allApproved = chars.length > 0 && chars.every(c => c.status === 'approved') && locs.every(l => l.status === 'approved')
-  const pendingCount = chars.filter(c => c.status !== 'approved').length + locs.filter(l => l.status !== 'approved').length
+  const needsReviewChars = chars.filter(c => c.needsReview)
+  const bibleApproved = statusData?.steps.some(step => step.key === 'bible' && step.status === 'approved') ?? false
+  const pendingChars = statusData?.counts ? statusData.counts.chars - statusData.counts.charsApproved : 0
+  const pendingLocs = statusData?.counts ? statusData.counts.locs - statusData.counts.locsApproved : 0
+  const pendingItems = [
+    pendingChars > 0 ? `ตัวละคร ${pendingChars} คน` : '',
+    pendingLocs > 0 ? `สถานที่ ${pendingLocs} แห่ง` : '',
+  ].filter(Boolean).join(' และ ')
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-4">
@@ -429,11 +450,12 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
           <h2 className="text-xl font-semibold">ขั้น 2 – Story Bible</h2>
           <button
             onClick={() => setShowAll(v => !v)}
+            aria-pressed={showAll}
             className={`text-xs px-2.5 py-1 rounded border transition-colors ${
               showAll ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-500 hover:bg-gray-50'
             }`}
           >
-            {showAll ? '🌐 ทั้งโปรเจกต์' : `📌 EP${currentEp} เท่านั้น`}
+            {showAll ? '🌐 ทั้งโปรเจกต์' : currentEp ? `📌 EP${currentEp} เท่านั้น` : '📌 ตอนนี้เท่านั้น'}
           </button>
         </div>
         <button
@@ -441,7 +463,7 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
           disabled={runS1.isPending || !!jobId}
           className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
         >
-          {jobId ? '⏳ กำลังวิเคราะห์…' : '🤖 ให้ AI วิเคราะห์'}
+          {(runS1.isPending || streamJob?.status === 'queued' || streamJob?.status === 'running') ? '⏳ กำลังวิเคราะห์…' : '🤖 ให้ AI วิเคราะห์'}
         </button>
       </div>
 
@@ -460,11 +482,12 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
         </div>
       )}
 
-      <AiLoadingBanner job={streamJob} label="AI กำลังวิเคราะห์ตัวละครและสถานที่" />
+      <AiLoadingBanner job={streamJob} pending={runS1.isPending} label="AI กำลังอ่านนิยายและสร้าง Story Bible" />
+      {runS1.isError && <p role="alert" className="text-sm text-red-700">เริ่มงานไม่สำเร็จ กรุณาลองอีกครั้ง</p>}
 
-      {chars.length === 0 && locs.length === 0 && !jobId && (
+      {statusData && !loadingChars && !loadingLocs && chars.length === 0 && locs.length === 0 && !jobId && (
         <div className="text-gray-500 text-sm bg-gray-50 rounded p-4">
-          {showAll ? 'ยังไม่มีข้อมูลใน Bible — กดปุ่ม "ให้ AI วิเคราะห์" เพื่อเริ่มต้น' : `ยังไม่มีตัวละครหรือสถานที่ใน EP${currentEp} — กดปุ่ม "ให้ AI วิเคราะห์" หรือสลับเป็น "ทั้งโปรเจกต์"`}
+          {showAll ? 'ยังไม่มีข้อมูลใน Bible ของโปรเจกต์นี้' : 'ยังไม่มีข้อมูลใน Bible ของตอนนี้'}
         </div>
       )}
 
@@ -486,6 +509,7 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
               : chars.map(c => (
                 <CharCard key={c._id} char={c}
                   currentEp={currentEp}
+                  inCurrentEp={characterIds.has(c._id)}
                   showAll={showAll}
                   onApprove={() => approveChar.mutate(c._id)}
                   onDelete={() => deleteChar.mutate(c._id)}
@@ -536,22 +560,25 @@ export function BibleStep({ projectId, episodeId, onDone }: Props) {
                 ))
             )}
           </div>
-
-          {pendingCount > 0 && (
-            <div className="text-sm text-orange-600 bg-orange-50 rounded p-3">
-              ⚠ ยังมี {pendingCount} รายการที่ยังไม่อนุมัติ
-            </div>
-          )}
-
-          <button
-            onClick={onDone}
-            disabled={!allApproved}
-            className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-40"
-          >
-            อนุมัติ Bible และไปขั้น Scenes ▶
-          </button>
         </>
       )}
+
+      {statusLoadFailed && !statusData && <p role="alert" className="text-sm text-red-700">โหลดสถานะ Bible ของตอนนี้ไม่สำเร็จ</p>}
+      {pendingItems && (
+        <p role="status" className="rounded bg-orange-50 p-3 text-sm text-orange-700">
+          ตอนนี้รออนุมัติ {pendingItems}
+        </p>
+      )}
+      {statusData?.counts?.chars === 0 && !jobId && (
+        <p className="text-sm text-gray-600">กด “ให้ AI วิเคราะห์” เพื่อหาตัวละครที่ใช้ในตอนนี้</p>
+      )}
+      <button
+        onClick={onDone}
+        disabled={!bibleApproved}
+        className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-40"
+      >
+        อนุมัติ Bible และไปขั้น Scenes ▶
+      </button>
 
       <JobProgressPanel job={streamJob} onDismiss={() => setJobId(null)} />
       {showAddFaction && (

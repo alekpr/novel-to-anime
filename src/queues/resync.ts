@@ -23,6 +23,13 @@ export async function resyncOnStartup(): Promise<void> {
 
   for (const task of pendingTasks) {
     if (!task.runninghubTaskId) {
+      if (task.workflowKey === "runninghub-video") {
+        await task.updateOne({
+          $set: { status: "failed", error: "แอปเริ่มใหม่ก่อนบันทึกเลขงาน กรุณาตรวจรายการใน RunningHub ก่อนส่งซ้ำ", finishedAt: new Date() },
+          $unset: { activeKey: "" },
+        });
+        continue;
+      }
       // ยังไม่ได้ส่งไป RunningHub → reset เป็น pending ให้ผู้ใช้ตัดสินใจ
       await task.updateOne({ status: "pending", error: "App restarted before task was submitted" });
     }

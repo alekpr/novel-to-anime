@@ -8,7 +8,9 @@ import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
 import { PropObject } from "../models/PropObject.js";
 import { Project } from "../models/Project.js";
+import { runShortDramaPrompt, type DramaScene } from "./shortDramaPrompt.service.js";
 import { assembleDY } from "../templates/dy.js";
+import { usesLatinVideoPrompt, videoPromptStructure } from "../utils/videoPromptLanguage.js";
 
 // S4a: LLM สร้างแค่ visual description + camera ต่อ shot
 // S4b: map dialogue จาก S3 + แบ่ง clips + ประกอบ DY prompt
@@ -32,6 +34,10 @@ const ShotVisualResult = z.object({
 export async function runPromptGeneration(
   sceneId: string
 ): Promise<{ clips: Array<{ durationSec: number; prompt: string }>; validationErrors: string[] }> {
+  const baseScene = await Scene.findById(sceneId).lean<DramaScene>();
+  if (!baseScene) throw new Error(`Scene ${sceneId} not found`);
+  if (baseScene.dramaBeat) return runShortDramaPrompt(baseScene);
+
   const scene = await Scene.findById(sceneId)
     .populate<{ locationId: { _id: Types.ObjectId; name: string; locationBlock: string } }>("locationId", "name locationBlock")
     .lean();
@@ -202,7 +208,7 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
 
   const dialogueLanguage = (project as unknown as { dialoguePolicy?: { dialogueLanguage?: string } }).dialoguePolicy?.dialogueLanguage ?? "Thai";
 
-  const { clips, validationErrors } = assembleDY({
+  const { clips: assembledClips, validationErrors } = assembleDY({
     draft,
     locationId,
     locationBlock,
@@ -218,6 +224,21 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
     clipPolicy,
     promptPrefix: (project as unknown as { styleGuide?: { promptPrefix?: string } }).styleGuide?.promptPrefix ?? "DY",
   });
+
+  const clips = await Promise.all(assembledClips.map(async clip => {
+    if (usesLatinVideoPrompt(clip.prompt)) return clip;
+    const structure = videoPromptStructure(clip.prompt);
+    const { data } = await callStructured({
+      system: "Translate the production text of this video prompt into idiomatic English, including location and appearance descriptions, shot directions, sound and delivery cues. Preserve the formatting, heading names, timing, reference IDs and speaker IDs. Only approved speech inside existing <d> tags stays in its original language. Copy each entire <d> block exactly and leave it with its original speaker and shot. Return JSON with the full prompt as videoPrompt.",
+      user: JSON.stringify({ videoPrompt: clip.prompt }),
+      schema: z.object({ videoPrompt: z.string().trim().min(1) }).refine(
+        ({ videoPrompt }) => usesLatinVideoPrompt(videoPrompt) && videoPromptStructure(videoPrompt) === structure,
+        "Translate all text outside dialogue tags into English and preserve the tags and prompt structure.",
+      ),
+      temperature: 0.1,
+    });
+    return { ...clip, prompt: data.videoPrompt };
+  }));
 
   const sceneClips = clips.map((clip, i) => ({
     clipCode: `${sc.sceneCode}-C${String(i + 1).padStart(2, "0")}`,

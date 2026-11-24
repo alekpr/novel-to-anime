@@ -2,10 +2,7 @@ import OpenAI from "openai";
 import { z } from "zod";
 import { config } from "../config/index.js";
 
-function makeClient(provider: "primary" | "fallback" = "primary") {
-  const cfg = provider === "fallback" ? config.llm.fallback : config.llm;
-  return new OpenAI({ baseURL: cfg.baseUrl, apiKey: cfg.apiKey });
-}
+type InlineImage = { mimeType: "image/jpeg"; data: string };
 
 export interface CallStructuredOpts<T extends z.ZodTypeAny> {
   system: string;
@@ -15,6 +12,7 @@ export interface CallStructuredOpts<T extends z.ZodTypeAny> {
   maxTokens?: number;
   temperature?: number;
   maxRetries?: number;
+  image?: InlineImage;
 }
 
 export interface TokenUsage { in: number; out: number }
@@ -22,15 +20,80 @@ export interface StructuredResult<T> { data: T; tokens: TokenUsage }
 
 const MAX_TOKENS_CAP = 65536;
 
+export class LLMOutputValidationError extends Error {}
+
+export class LLMRequestError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
+
+export class GeminiRequestError extends Error {
+  constructor(readonly status: number, details: string) {
+    super(`Gemini API error ${status}: ${details}`);
+  }
+}
+
 function isGeminiNative(): boolean {
   return config.llm.provider === "gemini";
+}
+
+function reportOpenAIError(error: unknown): never {
+  if (error instanceof OpenAI.APIError) {
+    switch (error.status) {
+      case 400:
+        throw new LLMRequestError(400, "OpenAI ปฏิเสธรูปแบบคำขอ กรุณาตรวจการตั้งค่าโมเดล");
+      case 401:
+        throw new LLMRequestError(401, "OpenAI API Key ใช้ไม่ได้ กรุณาตรวจค่าที่เซิร์ฟเวอร์");
+      case 403:
+      case 404:
+        throw new LLMRequestError(error.status, "บัญชีหรือโปรเจกต์ OpenAI นี้เข้าใช้โมเดลที่ตั้งไว้ไม่ได้");
+      case 429:
+        throw new LLMRequestError(429, "OpenAI จำกัดจำนวนคำขอหรือเครดิตไม่พอ กรุณาตรวจโควตาหรือลองใหม่");
+    }
+  }
+  throw new LLMRequestError(503, "เชื่อมต่อ OpenAI ไม่สำเร็จ กรุณาลองอีกครั้ง");
+}
+
+async function requestOpenAI(client: OpenAI, opts: {
+  model: string; system: string; user: string; maxTokens: number; image?: InlineImage;
+}) {
+  const { model, system, user, maxTokens, image } = opts;
+  const inputText = `${user}\n\nReturn one valid JSON object only.`;
+  const response = await client.responses.create({
+    model,
+    instructions: system,
+    input: image ? [{ role: "user", content: [
+      { type: "input_text", text: inputText },
+      { type: "input_image", detail: "high", image_url: `data:${image.mimeType};base64,${image.data}` },
+    ] }] : inputText,
+    text: { format: { type: "json_object" } },
+    max_output_tokens: maxTokens,
+    store: false,
+  }).catch(reportOpenAIError);
+  const incomplete = response.incomplete_details?.reason;
+  const refused = response.output.some(item =>
+    item.type === "message" && item.content.some(part => part.type === "refusal"));
+  if (refused || incomplete === "content_filter") {
+    throw new LLMRequestError(422, "Content filter blocked response (OpenAI)");
+  }
+  if (response.status && response.status !== "completed" && incomplete !== "max_output_tokens") {
+    throw new LLMRequestError(502, "OpenAI ตอบกลับไม่สำเร็จ กรุณาลองอีกครั้ง");
+  }
+  return {
+    text: response.output_text,
+    finishReason: incomplete === "max_output_tokens" ? "length" : "stop",
+    tokensIn: response.usage?.input_tokens ?? 0,
+    tokensOut: response.usage?.output_tokens ?? 0,
+  };
 }
 
 async function callGeminiNative(opts: {
   model: string; apiKey: string; system: string; user: string;
   maxTokens: number; temperature: number;
   jsonMode?: boolean;
-  novelInSystem?: boolean; // embed user content inside system_instruction to avoid promptFeedback block
+  novelInSystem?: boolean;
+  image?: InlineImage;
 }): Promise<{ text: string; finishReason: string; tokensIn: number; tokensOut: number; blocked?: string }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${opts.model}:generateContent?key=${opts.apiKey}`;
   const useJson = opts.jsonMode !== false;
@@ -45,10 +108,11 @@ async function callGeminiNative(opts: {
 
   const res = await fetch(url, {
     method: "POST",
+    ...(opts.image && { signal: AbortSignal.timeout(90_000) }),
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: systemText }] },
-      contents: [{ role: "user", parts: [{ text: userText }] }],
+      contents: [{ role: "user", parts: [{ text: userText }, ...(opts.image ? [{ inlineData: opts.image }] : [])] }],
       generationConfig: {
         ...(useJson ? { responseMimeType: "application/json" } : {}),
         maxOutputTokens: opts.maxTokens,
@@ -66,7 +130,7 @@ async function callGeminiNative(opts: {
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${err.slice(0, 300)}`);
+    throw new GeminiRequestError(res.status, err.slice(0, 300));
   }
 
   const json = await res.json() as {
@@ -121,10 +185,19 @@ export async function callGeminiDiagnose(model: string, apiKey: string, userText
 export async function callStructured<T extends z.ZodTypeAny>(
   opts: CallStructuredOpts<T>
 ): Promise<StructuredResult<z.infer<T>>> {
-  const model = opts.model ?? config.llm.model;
+  const useOpenAI = config.llm.provider === "openai";
+  const selected = opts.image ? config.llm.vision : config.llm;
+  const model = opts.model ?? selected.model;
   const maxRetries = opts.maxRetries ?? 2;
-  const useGeminiNative = isGeminiNative();
-  const client = useGeminiNative ? null : makeClient("primary");
+  const useGeminiNative = !useOpenAI && (!!opts.image || isGeminiNative());
+  if (!selected.apiKey) {
+    throw new LLMRequestError(503, useOpenAI ? "ตั้งค่า OPENAI_API_KEY ที่เซิร์ฟเวอร์ก่อนใช้งาน" : "ตั้งค่า API Key ของ AI ก่อนใช้งาน");
+  }
+  const client = useGeminiNative ? null : new OpenAI({
+    baseURL: config.llm.baseUrl,
+    apiKey: selected.apiKey,
+    ...(useOpenAI && { timeout: 180_000, maxRetries: 0 }),
+  });
 
   let lastError = "";
   let totalIn = 0;
@@ -137,15 +210,24 @@ export async function callStructured<T extends z.ZodTypeAny>(
     let finishReason: string;
     let text: string;
 
-    if (useGeminiNative) {
+    if (useOpenAI) {
+      const result = await requestOpenAI(client!, {
+        model, system: opts.system, user: userContent, maxTokens: currentMaxTokens, image: opts.image,
+      });
+      finishReason = result.finishReason;
+      text = result.text;
+      totalIn += result.tokensIn;
+      totalOut += result.tokensOut;
+    } else if (useGeminiNative) {
       const r = await callGeminiNative({
-        model, apiKey: config.llm.apiKey,
+        model, apiKey: selected.apiKey,
         system: opts.system, user: userContent,
-        maxTokens: currentMaxTokens, temperature: opts.temperature ?? 0.2,
+        maxTokens: currentMaxTokens, temperature: opts.temperature ?? 0.2, image: opts.image,
       });
 
       if (r.blocked) {
-        // retry 1: embed user content in system_instruction (bypasses promptFeedback filter on user turn)
+        if (opts.image) throw new Error(`Gemini could not analyze the reference image [${r.blocked}]`);
+        // retry 1: novelInSystem (bypasses promptFeedback filter on user turn)
         console.warn(`[Gemini] ${r.blocked} — retrying with novelInSystem=true`);
         const r1b = await callGeminiNative({
           model, apiKey: config.llm.apiKey,
@@ -161,7 +243,7 @@ export async function callStructured<T extends z.ZodTypeAny>(
         } else {
           // retry 2: fallback model + novelInSystem
           const fallbackModel = "gemini-3.5-flash";
-          console.warn(`[Gemini] still blocked — retrying with fallback model ${fallbackModel} + novelInSystem`);
+          console.warn(`[Gemini] still blocked — retrying with fallback model ${fallbackModel}`);
           const r2 = await callGeminiNative({
             model: fallbackModel, apiKey: config.llm.apiKey,
             system: opts.system, user: userContent,
@@ -224,7 +306,7 @@ export async function callStructured<T extends z.ZodTypeAny>(
     }
   }
 
-  throw new Error(`LLM output validation failed after ${maxRetries + 1} attempts: ${lastError}`);
+  throw new LLMOutputValidationError(`LLM output validation failed after ${maxRetries + 1} attempts: ${lastError}`);
 }
 
 // Plain text (markdown) call — no JSON schema, returns raw string
@@ -258,7 +340,7 @@ export async function callText(opts: {
     return r.text;
   }
   // OpenAI-compatible
-  const client = makeClient("primary");
+  const client = new OpenAI({ baseURL: config.llm.baseUrl, apiKey: config.llm.apiKey });
   const res = await (client as any).chat.completions.create({
     model,
     messages: [
