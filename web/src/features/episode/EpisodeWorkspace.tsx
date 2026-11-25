@@ -272,9 +272,10 @@ export function EpisodeWorkspace({ projectId }: Props) {
         {step === 'clips' && episodeId && (
           <ClipsStep episodeId={episodeId} resources={imageResources} />
         )}
-        {episodeId && (step === 'video' || statusData?.steps.some(item => item.key === 'video' && item.status !== 'locked')) && (
+        {episodeId && episode && (step === 'video' || statusData?.steps.some(item => item.key === 'video' && item.status !== 'locked')) && (
           <div hidden={step !== 'video'}>
-            <VideoPromptsStep key={episodeId} episodeId={episodeId} projectId={projectId} resources={imageResources} visible={step === 'video'}
+            <VideoPromptsStep key={episodeId} episodeId={episodeId} episodeNumber={episode.number}
+              projectId={projectId} resources={imageResources} visible={step === 'video'}
               onImages={() => setStep('images')} />
           </div>
         )}

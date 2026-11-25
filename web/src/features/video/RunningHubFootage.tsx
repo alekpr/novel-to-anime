@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import type { EpisodeImageResources } from '../images/useImageResources'
-import { saveFootage } from './footageStore'
+import { episodeFootageFolder, saveFootage } from './footageStore'
 
 function FootagePlayer({ file, clipCode }: { file: File; clipCode: string }) {
   const video = useRef<HTMLVideoElement>(null)
@@ -27,14 +27,14 @@ function FootagePlayer({ file, clipCode }: { file: File; clipCode: string }) {
   )
 }
 
-export function RunningHubFootage({ projectId, sceneCode, clipCode, jobId, index, resources, visible, onImages }: {
-  projectId: string; sceneCode: string; clipCode: string; jobId: string; index: number;
+export function RunningHubFootage({ projectId, episodeNumber, sceneCode, clipCode, jobId, index, resources, visible, onImages }: {
+  projectId: string; episodeNumber: number; sceneCode: string; clipCode: string; jobId: string; index: number;
   resources: EpisodeImageResources; visible: boolean; onImages: () => void;
 }) {
   const ready = resources.footagesStatus === 'ready'
   const footage = useQuery({
-    queryKey: ['footage', projectId, resources.workspaceId, jobId, index],
-    queryFn: () => saveFootage(projectId, sceneCode, clipCode, jobId, index),
+    queryKey: ['footage', projectId, resources.workspaceId, episodeNumber, jobId, index],
+    queryFn: () => saveFootage(projectId, episodeNumber, sceneCode, clipCode, jobId, index),
     enabled: ready,
     staleTime: Infinity,
     retry: false,
@@ -65,7 +65,7 @@ export function RunningHubFootage({ projectId, sceneCode, clipCode, jobId, index
       )}
       {footage.data && (
         <>
-          <p className="break-words text-xs font-medium text-green-700">บันทึกแล้ว · Footages / {footage.data.name}</p>
+          <p className="break-words text-xs font-medium text-green-700">บันทึกแล้ว · Footages/{episodeFootageFolder(episodeNumber)}/{footage.data.name}</p>
           <FootagePlayer file={footage.data} clipCode={clipCode} />
         </>
       )}

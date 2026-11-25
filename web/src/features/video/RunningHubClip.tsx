@@ -19,8 +19,8 @@ function statusDot(status: VideoHistoryEntry['status']) {
   return <span className="inline-block h-2 w-2 rounded-full bg-slate-300" />
 }
 
-function VideoHistoryTabs({ projectId, scene, clip, resources, visible, onImages }: {
-  projectId: string; scene: Scene; clip: Clip
+function VideoHistoryTabs({ projectId, episodeNumber, scene, clip, resources, visible, onImages }: {
+  projectId: string; episodeNumber: number; scene: Scene; clip: Clip
   resources: EpisodeImageResources; visible: boolean; onImages: () => void
 }) {
   const historyKey = ['runninghub-history', scene._id, clip.clipCode]
@@ -54,7 +54,7 @@ function VideoHistoryTabs({ projectId, scene, clip, resources, visible, onImages
         ))}
       </div>
       {entry.status === 'succeeded' && entry.videoCount > 0 && Array.from({ length: entry.videoCount }, (_, i) => (
-        <RunningHubFootage key={`${entry.id}:${i}`} projectId={projectId} sceneCode={scene.sceneCode}
+        <RunningHubFootage key={`${entry.id}:${i}`} projectId={projectId} episodeNumber={episodeNumber} sceneCode={scene.sceneCode}
           clipCode={clip.clipCode} jobId={entry.id} index={i + 1} resources={resources} visible={visible} onImages={onImages} />
       ))}
       {entry.status === 'failed' && <p className="text-sm text-red-600">เวอร์ชันนี้สร้างไม่สำเร็จ</p>}
@@ -66,8 +66,8 @@ function VideoHistoryTabs({ projectId, scene, clip, resources, visible, onImages
 }
 
 export function RunningHubClip(
-{ projectId, scene, clip, settings, resources, visible, onSetup, onImages, projectRatio, isOptimized }: {
-  projectId: string; scene: Scene; clip: Clip; settings?: RunningHubSettings; resources: EpisodeImageResources
+{ projectId, episodeNumber, scene, clip, settings, resources, visible, onSetup, onImages, projectRatio, isOptimized }: {
+  projectId: string; episodeNumber: number; scene: Scene; clip: Clip; settings?: RunningHubSettings; resources: EpisodeImageResources
   visible: boolean; projectRatio?: string; isOptimized?: boolean
   onSetup: () => void; onImages: () => void
 }) {
@@ -200,10 +200,10 @@ export function RunningHubClip(
         </p>
       )}
       {videoJobId && Array.from({ length: videoCount }, (_, i) => (
-        <RunningHubFootage key={`${videoJobId}:${i}`} projectId={projectId} sceneCode={scene.sceneCode}
+        <RunningHubFootage key={`${videoJobId}:${i}`} projectId={projectId} episodeNumber={episodeNumber} sceneCode={scene.sceneCode}
           clipCode={clip.clipCode} jobId={videoJobId} index={i + 1} resources={resources} visible={visible} onImages={onImages} />
       ))}
-      <VideoHistoryTabs projectId={projectId} scene={scene} clip={clip} resources={resources} visible={visible} onImages={onImages} />
+      <VideoHistoryTabs projectId={projectId} episodeNumber={episodeNumber} scene={scene} clip={clip} resources={resources} visible={visible} onImages={onImages} />
       {videoJobId && (
         <form className="space-y-2 border-t pt-3" onSubmit={event => {
           event.preventDefault()

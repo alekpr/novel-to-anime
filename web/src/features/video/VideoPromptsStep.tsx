@@ -12,10 +12,11 @@ import { buildSendFormData } from './clipReferences'
 import { needsDramaVideoPromptRefresh } from '../../../../src/utils/shortDrama'
 import { runningHubApi, runningHubCountsKey, runningHubSettingsKey } from './runningHubApi'
 import type { RunningHubSettings } from './runningHubApi'
-import { saveEpisodeSubtitles } from './footageStore'
+import { episodeFootageFolder, saveEpisodeSubtitles } from './footageStore'
 
 interface Props {
   episodeId: string
+  episodeNumber: number
   projectId: string
   resources: EpisodeImageResources
   visible: boolean
@@ -56,8 +57,8 @@ function DownloadButton({ text, filename }: { text: string; filename: string }) 
 
 // ---- Tab 1: DY Prompts Viewer ----
 
-function SceneVideoPanel({ scene, projectId, resources, settings, generationCount, updatingFromShots, visible, onSetup, onImages, projectRatio }: {
-  scene: Scene; projectId: string; resources: EpisodeImageResources; settings?: RunningHubSettings
+function SceneVideoPanel({ scene, projectId, episodeNumber, resources, settings, generationCount, updatingFromShots, visible, onSetup, onImages, projectRatio }: {
+  scene: Scene; projectId: string; episodeNumber: number; resources: EpisodeImageResources; settings?: RunningHubSettings
   generationCount?: number; updatingFromShots: boolean; visible: boolean; projectRatio?: string
   onSetup: () => void; onImages: () => void
 }) {
@@ -157,7 +158,7 @@ function SceneVideoPanel({ scene, projectId, resources, settings, generationCoun
                     <span className="font-semibold">คอมเมนต์ล่าสุด</span>{' '}{clip.promptRevision.comment}
                   </p>
                 )}
-                <RunningHubClip scene={scene} clip={clip} projectId={projectId} resources={resources}
+                <RunningHubClip scene={scene} clip={clip} projectId={projectId} episodeNumber={episodeNumber} resources={resources}
                   settings={settings} visible={visible && open} onSetup={onSetup} onImages={onImages} projectRatio={projectRatio} />
               </div>
             ) : (
@@ -644,7 +645,7 @@ function AutoGenQueue({ scenes, projectId, resources, settings, episodeId }: {
 
 // ---- Main Step ----
 
-export function VideoPromptsStep({ episodeId, projectId, resources, visible, onImages }: Props) {
+export function VideoPromptsStep({ episodeId, episodeNumber, projectId, resources, visible, onImages }: Props) {
   const [tab, setTab] = useState<'dy' | 'bgm' | 'dialogue'>('dy')
   const [showSetup, setShowSetup] = useState(false)
 
@@ -677,7 +678,7 @@ export function VideoPromptsStep({ episodeId, projectId, resources, visible, onI
         throw new Error('อนุญาตให้เบราว์เซอร์บันทึกไฟล์ใน Footages แล้วลองอีกครั้ง')
       }
       try {
-        return await saveEpisodeSubtitles(projectId, episodeId)
+        return await saveEpisodeSubtitles(projectId, episodeId, episodeNumber)
       } catch (error) {
         if (error instanceof DOMException) {
           throw new Error('บันทึกไฟล์ลง Footages ไม่สำเร็จ กรุณาตรวจโฟลเดอร์และสิทธิ์เขียนไฟล์')
@@ -714,7 +715,7 @@ export function VideoPromptsStep({ episodeId, projectId, resources, visible, onI
       {visible && !resources.folderName && !resources.isLoading && (
         <p className="text-sm text-slate-600">
           <button type="button" onClick={onImages} className="font-medium text-blue-700 underline">เลือกโฟลเดอร์ในขั้น 5</button>{' '}
-          เพื่อบันทึกไฟล์ซับไตเติลลง Footages
+          เพื่อบันทึกไฟล์ซับไตเติลลง Footages/{episodeFootageFolder(episodeNumber)}
         </p>
       )}
       {visible && savedSubtitles && (
@@ -769,7 +770,7 @@ export function VideoPromptsStep({ episodeId, projectId, resources, visible, onI
               <button type="button" className="underline" onClick={() => void generationCounts.refetch()}>ลองอีกครั้ง</button>
             </p>
           )}
-          {scenes.map(sc => <SceneVideoPanel key={sc._id} scene={sc} projectId={projectId}
+          {scenes.map(sc => <SceneVideoPanel key={sc._id} scene={sc} projectId={projectId} episodeNumber={episodeNumber}
             generationCount={generationCounts.data && (generationCounts.data[sc._id] ?? 0)}
             updatingFromShots={approvingScenes.includes(sc._id) && needsDramaVideoPromptRefresh(sc)}
             resources={resources} settings={settings.data} visible={visible} onSetup={() => setShowSetup(true)} onImages={onImages} projectRatio={projectRatio} />)}
