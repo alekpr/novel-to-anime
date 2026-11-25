@@ -13,7 +13,7 @@ describe("Thai short drama", () => {
     }));
     expect(DRAMA_EP_SECONDS).toBe(60);
     expect(fitsDramaScene(shots, 15)).toBe(true);
-    expect(fitsDramaScene(shots.map(shot => ({ ...shot, dialogue: [] })), 15)).toBe(false);
+    expect(fitsDramaScene(shots.map(shot => ({ ...shot, dialogue: [] })), 15)).toBe(true);
     expect(fitsDramaScene(shots.slice(0, -1), 15)).toBe(false);
     expect(fitsDramaScene([{ ...shots[0], durationSec: 0.65 }, ...shots.slice(1)], 15)).toBe(false);
   });
@@ -34,6 +34,44 @@ describe("Thai short drama", () => {
     expect(alignDramaShotTiming(shots, 11).map(shot => shot.durationSec)).toEqual([3.3, 5, 2.7]);
     expect(alignDramaShotTiming(shots, 15)).toEqual(shots);
     expect(shots[0].durationSec).toBe(3.8);
+  });
+
+  it("extends a short dialogue shot when a small adjustment to a silent shot makes room", () => {
+    const shots = [
+      { order: 1, durationSec: 4, dialogue: [{ lineTh: Array(14).fill("go").join(" ") }] },
+      { order: 2, durationSec: 3.9, dialogue: [] },
+    ];
+
+    const adjusted = alignDramaShotTiming(shots, 8);
+    expect(adjusted.map(shot => shot.durationSec)).toEqual([4.3, 3.7]);
+    expect(fitsDramaScene(adjusted, 8)).toBe(true);
+    expect(shots.map(shot => shot.durationSec)).toEqual([4, 3.9]);
+  });
+
+  it("allows a continuous shot for the father's question and Non's full accusation", () => {
+    const dialogue = [
+      { lineTh: "นี่มันเรื่องอะไรกัน! แขกรอกันหมดแล้ว เฟิร์นอยู่ไหน!" },
+      { lineTh: "คุณอาถามคนนี้เลยครับ มันเป็นคนพาเจ้าสาวของผมหนี" },
+    ];
+    const shots = [{ order: 1, durationSec: 10, dialogue }];
+    expect(fitsDramaScene(shots, 10)).toBe(true);
+    expect(alignDramaShotTiming(shots, 10)).toEqual(shots);
+    const { prompt } = assembleShortDramaH3({
+      overview: "The father enters and Non answers immediately.",
+      references: [
+        { name: "พ่อ", role: "character", description: "An older man in a suit" },
+        { name: "นนท์", role: "character", description: "A younger man in a groom's suit" },
+      ],
+      blocking: "Keep both men visible beside the doorway.",
+      soundAndEditing: "The door opens under the first line.",
+      shots: [{
+        durationSec: 10,
+        direction: "Hold the two-shot as the younger man answers.",
+        dialogue: dialogue.map(({ lineTh }, i) => ({ subject: i + 1, text: lineTh, language: "Thai", delivery: "" })),
+      }],
+    });
+    expect(Array.from(prompt.matchAll(/<d>\[Thai\] (.*?)<\/d>/g), match => match[1])).toEqual(dialogue.map(line => line.lineTh));
+    expect(prompt).not.toContain("[Shot 2]");
   });
 
   it("rejects saved drama scenes over 15 seconds before shot or clip generation", () => {

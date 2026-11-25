@@ -2,90 +2,15 @@ import { useMutation, useMutationState, useQuery, useQueryClient } from '@tansta
 import { useId, useState } from 'react'
 import { promptsApi } from '../../lib/api'
 import type { Clip, Scene } from '../../lib/api'
-import { characterImageKey, locationImageKey, outfitImageKeys } from '../../../../src/utils/imageReferenceKeys'
-import { supportedReferenceImage, validPictureSlots, videoDuration, videoRatio, MAX_REFERENCE_AUDIOS } from '../../../../src/utils/videoClipInputs'
+import { supportedReferenceImage, validPictureSlots, videoDuration, videoRatio } from '../../../../src/utils/videoClipInputs'
 import { isDramaClipDuration } from '../../../../src/utils/shortDrama'
 import { usesLatinVideoPrompt } from '../../../../src/utils/videoPromptLanguage'
-import { inspectImageWorkspace } from '../images/imageResourceStore'
 import { referenceUpdateKey } from '../images/updateReferencePrompt'
 import type { EpisodeImageResources } from '../images/useImageResources'
 import { runningHubApi, runningHubCountsKey, runningHubMessage } from './runningHubApi'
 import type { RunningHubSettings, VideoHistoryEntry } from './runningHubApi'
 import { RunningHubFootage } from './RunningHubFootage'
-
-function imageSlots(clip: Clip, resources: EpisodeImageResources) {
-  const names = new Map<string, string[]>()
-  function add(role: string, name: string, key: string) {
-    const id = JSON.stringify([role, name])
-    names.set(id, [...(names.get(id) ?? []), key])
-  }
-  for (const char of resources.chars) {
-    const outfits = char.outfits ?? []
-    if (!outfits.length) add('character', char.name, characterImageKey(char._id))
-    const keys = outfitImageKeys(char)
-    outfits.forEach((outfit, i) => add('character', outfit.name ? `${char.name} · ${outfit.name}` : char.name, keys[i]))
-  }
-  for (const loc of resources.locs) add('location', loc.name, locationImageKey(loc._id))
-
-  return (clip.referenceSlots ?? []).slice().sort((a, b) => a.index - b.index).map(slot => {
-    const matches = names.get(JSON.stringify([slot.role, slot.name]))
-    return { ...slot, key: slot.resourceKey ?? (matches?.length === 1 ? matches[0] : undefined) }
-  })
-}
-
-// ตัวละครที่มี dialogue ในคลิปนี้ (มี audioReference)
-function audioSlots(clip: Clip, resources: EpisodeImageResources) {
-  const dialogueChars = new Set(
-    (clip.referenceSlots ?? []).filter(s => s.role === 'character').map(s => s.name)
-  )
-  return resources.chars
-    .filter(char => dialogueChars.has(char.name) && (char as any).voice?.audioReference)
-    .slice(0, MAX_REFERENCE_AUDIOS)
-    .map(char => ({ charId: char._id, name: char.name, audioRef: (char as any).voice.audioReference as string }))
-}
-
-export async function buildSendFormData(
-  clip: Clip,
-  projectId: string,
-  resources: EpisodeImageResources,
-  isOptimized?: boolean
-): Promise<FormData> {
-  const slots = imageSlots(clip, resources)
-  const audios = audioSlots(clip, resources)
-  const keys = slots.flatMap(slot => slot.key ? [slot.key] : [])
-  const current = await inspectImageWorkspace(projectId, keys)
-  const body = new FormData()
-  body.append('promptVersion', String(clip.promptVersion))
-  if (isOptimized && clip.videoPrompt) body.append('optimizedPrompt', clip.videoPrompt)
-  for (const slot of slots) {
-    const ref = slot.key ? current.references[slot.key] : undefined
-    if (ref?.status !== 'ready' || !supportedReferenceImage(ref.file.name, ref.file.size)) {
-      throw new Error(`ตรวจไฟล์ Picture ${slot.index} · ${slot.name} ในขั้น 5 ก่อนส่ง`)
-    }
-    body.append(`picture-${slot.index}`, ref.file)
-  }
-  for (const audio of audios) {
-    const res = await fetch(`/api/characters/${audio.charId}/audio-reference`)
-    if (!res.ok) throw new Error(`โหลดไฟล์เสียงของ ${audio.name} ไม่สำเร็จ`)
-    const blob = await res.blob()
-    const ext = audio.audioRef.split('.').pop() ?? 'mp3'
-    body.append(`audio-${audio.charId}`, new File([blob], `${audio.charId}.${ext}`, { type: blob.type }))
-  }
-  return body
-}
-
-function audioRefStatus(clip: Clip, resources: EpisodeImageResources) {
-  const dialogueChars = new Set(
-    (clip.referenceSlots ?? []).filter(s => s.role === 'character').map(s => s.name)
-  )
-  const chars = resources.chars.filter(char => dialogueChars.has(char.name))
-  const withAudio = chars.filter(char => (char as any).voice?.audioReference)
-  return {
-    all: chars,
-    withAudio: withAudio.slice(0, MAX_REFERENCE_AUDIOS),
-    missing: chars.filter(char => !(char as any).voice?.audioReference),
-  }
-}
+import { buildSendFormData, clipImageSlots } from './clipReferences'
 
 function statusDot(status: VideoHistoryEntry['status']) {
   if (status === 'succeeded') return <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
@@ -167,9 +92,7 @@ export function RunningHubClip(
   const previousVideo = !currentVideo ? clip.promptRevision : undefined
   const videoJobId = currentVideo?.id ?? previousVideo?.sourceJobId
   const videoCount = currentVideo?.videos.length ?? previousVideo?.sourceVideoCount ?? 0
-  const slots = imageSlots(clip, resources)
-  const audios = audioSlots(clip, resources)
-  const audioStatus = audioRefStatus(clip, resources)
+  const slots = clipImageSlots(clip, resources)
   const updatingKeys = useMutationState({
     filters: { mutationKey: referenceUpdateKey(projectId), status: 'pending' },
     select: mutation => mutation.options.mutationKey?.[2],
@@ -244,32 +167,12 @@ export function RunningHubClip(
         <span className="text-sm font-medium">RunningHub</span>
         <button type="button" disabled={disabled} onClick={() => send.mutate()}
           className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40">
-          {send.isPending ? 'กำลังส่งภาพและพรอมป์…' : 'Create Video'}
+          {send.isPending ? 'กำลังส่งพรอมป์และไฟล์อ้างอิง…' : 'Create Video'}
         </button>
       </div>
       <p className="text-xs text-slate-600">
         {ratio ?? 'ยังไม่พบสัดส่วนภาพ'} · {duration} วินาที · ภาพพร้อม {slots.length - needed.length - unsupported.length}/{slots.length}
       </p>
-      {audioStatus.all.length > 0 && (
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-slate-500">🎙 Audio Reference ({audioStatus.withAudio.length}/{audioStatus.all.length})</p>
-          <div className="flex flex-wrap gap-1.5">
-            {audioStatus.withAudio.map(a => (
-              <span key={a._id} className="inline-flex items-center gap-1 rounded bg-green-50 border border-green-200 px-2 py-0.5 text-xs text-green-700">
-                ✓ {a.name}
-              </span>
-            ))}
-            {audioStatus.missing.map(c => (
-              <span key={c._id} className="inline-flex items-center gap-1 rounded bg-amber-50 border border-amber-200 px-2 py-0.5 text-xs text-amber-700">
-                ⚠ {c.name} — ไม่มี audio ref
-              </span>
-            ))}
-          </div>
-          {audioStatus.missing.length > 0 && (
-            <p className="text-xs text-amber-600">อัปโหลด audio ref ในขั้น Prompt → tab Audio Ref เพื่อให้เสียงสมจริงยิ่งขึ้น</p>
-          )}
-        </div>
-      )}
       {settings && !configured && <button type="button" onClick={onSetup} className="text-sm text-blue-700 underline">ตั้งค่า API Key และ Workflow ก่อนส่ง</button>}
       {(!validSlots || !validClip) && <p className="text-sm text-amber-800">ตรวจสัดส่วน เวลา และลำดับ Picture ในพรอมป์ที่สร้างในขั้น 6</p>}
       {!validLanguage && <p className="text-sm text-amber-800">

@@ -8,9 +8,12 @@ import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
 import { PropObject } from "../models/PropObject.js";
 import { Project } from "../models/Project.js";
-import { runShortDramaPrompt, type DramaScene } from "./shortDramaPrompt.service.js";
+import { runShortDramaPrompt, type CharacterReference, type DramaScene, type PropReference } from "./shortDramaPrompt.service.js";
 import { assembleDY } from "../templates/dy.js";
-import { usesLatinVideoPrompt, videoPromptStructure } from "../utils/videoPromptLanguage.js";
+import { usesLatinVideoDirection, usesLatinVideoPrompt, videoPromptStructure } from "../utils/videoPromptLanguage.js";
+import { outfitImageKeys } from "../utils/imageReferenceKeys.js";
+import { cameraAngleFromDirection, cameraSetupDirection, isPortraitRatio, type CameraSetup, type DramaCameraAngle, type PortraitFraming } from "../utils/dramaCamera.js";
+import { continuesFromNeighbor, validateSceneCameraHandoff } from "./sceneCameraHandoff.js";
 
 // S4a: LLM สร้างแค่ visual description + camera ต่อ shot
 // S4b: map dialogue จาก S3 + แบ่ง clips + ประกอบ DY prompt
@@ -19,6 +22,7 @@ const ShotVisualResult = z.object({
   title: z.string(),
   sceneType: z.string(),
   summary: z.string(),
+  openingBlocking: z.string().trim().refine(usesLatinVideoDirection).default(""),
   visualTone: z.string(),
   soundscape: z.string(),
   music: z.string(),
@@ -28,6 +32,7 @@ const ShotVisualResult = z.object({
     camera: z.string(),        // e.g. "slow push-in, eye-level"
     lighting: z.string(),      // e.g. "warm backlight, soft shadows"
     description: z.string(),   // rich visual description with tokens
+    endBlocking: z.string().trim().refine(usesLatinVideoDirection).default(""),
   })).min(1),
 });
 
@@ -49,7 +54,7 @@ export async function runPromptGeneration(
   const characters = await Character.find({
     _id: { $in: scene.characterIds ?? [] },
     status: "approved",
-  }).lean() as unknown as Array<{ _id: Types.ObjectId; name: string; appearanceBlock: string }>;
+  }).lean<CharacterReference[]>();
 
   const loc = scene.locationId as unknown as { _id: Types.ObjectId; name: string; locationBlock: string } | null;
   const locationBlock = loc?.locationBlock ?? "";
@@ -59,24 +64,33 @@ export async function runPromptGeneration(
   // ดึง shots จาก S3
   const s3shots = await Shot.find({ sceneId }).sort({ order: 1 }).lean() as unknown as Array<{
     _id: Types.ObjectId; order: number; durationSec: number;
-    breakQuality: string; shotType: string; action: string; emotion: string;
+    breakQuality: string; shotType: string; camera?: string; cameraAngle?: DramaCameraAngle; action: string; emotion: string;
+    cameraSetup?: CameraSetup;
+    portraitFraming?: PortraitFraming | null;
+    direction?: { blocking: string; endBlocking?: string; performance: string; cut: string; backgroundActivity: string };
     characterIds: Types.ObjectId[];
     propIds: Types.ObjectId[];
     dialogue: Array<{ speakerId?: Types.ObjectId; lineTh?: string; tone?: string; source: string }>;
   }>;
+  const previous = await validateSceneCameraHandoff(baseScene, s3shots);
+  const continuing = continuesFromNeighbor(baseScene, previous);
 
   // resolve propIds → prop names per shot
   const allPropIds = [...new Set(s3shots.flatMap(sh => sh.propIds?.map(id => id.toString()) ?? []))];
-  const propIdToName = new Map<string, string>();
-  if (allPropIds.length > 0) {
-    const foundProps = await PropObject.find({ _id: { $in: allPropIds } }, { name: 1 }).lean() as unknown as Array<{ _id: Types.ObjectId; name: string }>;
-    foundProps.forEach(p => propIdToName.set(p._id.toString(), p.name));
-  }
+  const props = allPropIds.length
+    ? (await PropObject.find({ projectId: scene.projectId, _id: { $in: allPropIds } }).select("name visualPrompt description").lean<PropReference[]>())
+      .map(prop => ({ id: String(prop._id), name: prop.name, visualPrompt: prop.visualPrompt || prop.description || "" }))
+    : [];
+  const propIdToName = new Map(props.map(prop => [prop.id, prop.name]));
+  const shotPropNames = s3shots.map(shot =>
+    (shot.propIds ?? []).flatMap(id => {
+      const name = propIdToName.get(String(id));
+      return name ? [name] : [];
+    }),
+  );
   const charIdToId = new Map(characters.map(c => [c._id.toString(), c._id.toString()]));
   const charContext = characters.map((c) => `- ID: ${c._id} | name: ${c.name}`).join("\n");
 
-  // ดึง props ของ project
-  const props = await PropObject.find({ projectId: scene.projectId }).lean() as unknown as Array<{ name: string; visualPrompt: string }>;
   const propContext = props.length > 0
     ? props.map(p => `- ${p.name}: ${p.visualPrompt}`).join("\n")
     : "(none)";
@@ -108,6 +122,13 @@ export async function runPromptGeneration(
     return [
       `Shot ${sh.order} [${sh.shotType}] ${sh.durationSec}s [${sh.breakQuality}]${hasDialogue ? " [HAS_DIALOGUE — use MLS or closer]" : ""}`,
       `  action: ${translatedActions[i]}`,
+      sh.camera ? `  planned camera: ${sh.camera}` : null,
+      sh.cameraAngle ? `  planned camera angle: ${sh.cameraAngle}` : null,
+      sh.cameraSetup ? `  planned camera setup: ${cameraSetupDirection(sh.cameraSetup)}` : null,
+      sh.portraitFraming && isPortraitRatio(styleGuide?.aspectRatio ?? "16:9")
+        ? `  portrait framing to preserve: ${JSON.stringify(sh.portraitFraming)}` : null,
+      sh.direction ? `  planned direction: ${JSON.stringify(sh.direction)}` : null,
+      shotPropNames[i].length ? `  props: ${shotPropNames[i].join(", ")}` : null,
       `  emotion: ${sh.emotion || "neutral"}`,
       tones ? `  dialogue_tone: ${tones}` : null,
     ].filter(Boolean).join("\n");
@@ -126,25 +147,31 @@ ${propContext}
 ## Shots from S3 — FIXED (do NOT change order, duration, or count)
 ${shotList}
 
+${continuing && previous?.endBlocking ? `Previous clip's end state: ${previous.endBlocking}
+Translate it into openingBlocking. The first shot starts at that physical state, from the new camera angle. Continue any movement in progress without replaying an arrival or approach.` : ""}
+
 ## Your task
 For EACH of the ${s3shots.length} shots above, provide:
-- camera: specific movement + angle + lens feel (e.g. "slow push-in, low angle, wide lens")
+- camera: describe the planned placement, angle and movement. When a camera setup is supplied, the app inserts its focal length, shot size and camera-to-subject distance. Keep the active speaker prominent in any planned portrait close-up.
 - lighting: lighting quality + color temperature + shadow direction (e.g. "warm golden backlight, soft rim on left, deep shadows")
 - description: 2–3 sentence cinematic visual description. Include:
   • subject positions and body language using {{char:ID}} / {{loc:${locationId}}} tokens
-  • key visual details (clothing, props, environment elements)
+  • key visual details (clothing, environment elements, and the props listed for this shot, referenced by {{prop:NAME}})
   • emotional atmosphere matching the shot's emotion and mood
+  • continuity of action, positions and eyelines from the previous shot, following the planned cut
+  • the approved portrait framing, focal characters and near/far placement when supplied
   • DO NOT include dialogue text here
 
 Also provide scene-level fields: title, sceneType, summary, visualTone, soundscape, music, retentionNotes
+When the plan supplies direction.endBlocking, translate it to the shot's endBlocking as a plain English snapshot, without clip-local subject numbers. Return empty openingBlocking when there is no previous end state.
 
 ## Return JSON:
 {
   "title": "...", "sceneType": "...", "summary": "...", "visualTone": "...",
-  "soundscape": "...", "music": "...",
+  "soundscape": "...", "music": "...", "openingBlocking": "",
   "retentionNotes": { "<characterId>": "what to preserve visually" },
   "shots": [
-    { "order": 1, "camera": "...", "lighting": "...", "description": "..." },
+    { "order": 1, "camera": "...", "lighting": "...", "description": "...", "endBlocking": "" },
     ...exactly ${s3shots.length} shots...
   ]
 }`;
@@ -152,7 +179,11 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
   const { data: visual } = await callStructured({
     system: loadPrompt("s4a-prompt.txt"),
     user: userPrompt,
-    schema: ShotVisualResult,
+    schema: ShotVisualResult.refine(visual =>
+      (!continuing || !previous?.endBlocking || !!visual.openingBlocking) &&
+      s3shots.every(shot => !shot.direction?.endBlocking ||
+        visual.shots.some(output => output.order === shot.order && !!output.endBlocking)),
+      "Translate all supplied opening and ending blocking snapshots into English."),
     temperature: 0.3,
     maxTokens: 8000,
   });
@@ -160,8 +191,8 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
   // map visual + S3 dialogue → SceneVideoPromptDraft format
   const visualMap = new Map(visual.shots.map(sh => [sh.order, sh]));
 
-  const draftShots: SceneVideoPromptDraftType["shots"] = s3shots.map((sh) => {
-    const vis = visualMap.get(sh.order) ?? visual.shots[s3shots.indexOf(sh)];
+  const draftShots: SceneVideoPromptDraftType["shots"] = s3shots.map((sh, i) => {
+    const vis = visualMap.get(sh.order) ?? visual.shots[i];
 
     // map dialogue จาก S3 โดยตรง — ใช้ speakerId เป็น characterId
     const dialogue = sh.dialogue
@@ -180,11 +211,14 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
         note: undefined,
       },
       camera: vis?.camera ?? "",
+      endBlocking: vis?.endBlocking,
+      cameraSetup: sh.cameraSetup,
+      cameraAngle: sh.cameraAngle ?? cameraAngleFromDirection(sh.camera),
       lighting: vis?.lighting ?? "",
-      description: vis?.description ?? translatedActions[s3shots.indexOf(sh)] ?? "",
+      description: vis?.description ?? translatedActions[i] ?? "",
       dialogue,
       charactersInShot: sh.characterIds.map(id => id.toString()).filter(id => charIdToId.has(id)),
-      propsInShot: (sh.propIds ?? []).map(id => propIdToName.get(id.toString())).filter((n): n is string => !!n),
+      propsInShot: shotPropNames[i],
     };
   });
 
@@ -213,14 +247,20 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
 
   const { clips: assembledClips, validationErrors } = assembleDY({
     draft,
+    openingBlocking: continuing ? visual.openingBlocking : undefined,
     locationId,
     locationBlock,
     locationName,
-    characters: characters.map((c) => ({
-      id: c._id.toString(),
-      appearanceBlock: c.appearanceBlock,
-      name: c.name,
-    })),
+    characters: characters.map(c => {
+      const id = String(c._id);
+      const outfit = c.outfits?.[0];
+      return {
+        id,
+        appearanceBlock: [outfit?.referenceAppearance || c.appearanceBlock, outfit?.outfitPrompt || outfit?.description].filter(Boolean).join(". "),
+        name: outfit?.name ? `${c.name} · ${outfit.name}` : c.name,
+        resourceKey: outfitImageKeys({ ...c, _id: id })[0],
+      };
+    }),
     props,
     referencePictures: [],
     dialogueLanguage,
@@ -235,7 +275,7 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
     if (usesLatinVideoPrompt(clip.prompt)) return clip;
     const structure = videoPromptStructure(clip.prompt);
     const { data } = await callStructured({
-      system: "Translate the production text of this video prompt into idiomatic English, including location and appearance descriptions, shot directions, sound and delivery cues. Preserve the formatting, heading names, timing, reference IDs and speaker IDs. Only approved speech inside existing <d> tags stays in its original language. Copy each entire <d> block exactly and leave it with its original speaker and shot. Return JSON with the full prompt as videoPrompt.",
+      system: "Translate the production text of this video prompt into idiomatic English, including location and appearance descriptions, shot directions, sound and delivery cues. Preserve the formatting, heading names, camera angle and lens/framing labels, timing, reference IDs and speaker IDs. Only approved speech inside existing <d> tags stays in its original language. Copy each entire <d> block exactly and leave it with its original speaker and shot. Return JSON with the full prompt as videoPrompt.",
       user: JSON.stringify({ videoPrompt: clip.prompt }),
       schema: z.object({ videoPrompt: z.string().trim().min(1) }).refine(
         ({ videoPrompt }) => usesLatinVideoPrompt(videoPrompt) && videoPromptStructure(videoPrompt) === structure,
@@ -248,12 +288,14 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
 
   const sceneClips = clips.map((clip, i) => ({
     clipCode: `${sc.sceneCode}-C${String(i + 1).padStart(2, "0")}`,
-    shotIds: [],
+    shotIds: clip.shotIds.map(id => s3shots[Number(id)]._id),
     startOffsetSec: clips.slice(0, i).reduce((s, c) => s + c.durationSec, 0),
     durationSec: clip.durationSec,
     referencePictures: [],
     videoPrompt: clip.prompt,
-    promptVersion: 1,
+    referenceSlots: clip.referenceSlots,
+    speakerCharacterIds: clip.speakerCharacterIds,
+    promptVersion: (baseScene.clips[i]?.promptVersion ?? 0) + 1,
     clipAssetId: null,
     takes: [],
     stale: false,

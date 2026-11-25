@@ -8,8 +8,9 @@ import { promptsApi, scenesApi, shotApprovalKey } from '../../lib/api'
 import { AiLoadingBanner } from '../../components/AiLoadingBanner'
 import { ReferenceSlots } from '../../components/ReferenceSlots'
 import type { Clip, Scene } from '../../lib/api'
+import type { EpisodeImageResources } from '../images/useImageResources'
 
-interface Props { episodeId: string }
+interface Props { episodeId: string; resources: EpisodeImageResources }
 
 function CopyButton({ text, label = 'copy prompt' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
@@ -23,7 +24,9 @@ function CopyButton({ text, label = 'copy prompt' }: { text: string; label?: str
   )
 }
 
-function ClipCard({ clip, index }: { clip: Clip; index: number }) {
+function ClipCard({ clip, index, shortDrama, resources }: {
+  clip: Clip; index: number; shortDrama: boolean; resources: EpisodeImageResources
+}) {
   const [open, setOpen] = useState(index === 0)
   return (
     <div className={`border rounded-lg overflow-hidden ${clip.stale ? 'border-yellow-400' : ''}`}>
@@ -44,9 +47,9 @@ function ClipCard({ clip, index }: { clip: Clip; index: number }) {
             <p className="text-sm text-yellow-700">ข้อมูลซีนหรือภาพอ้างอิงเปลี่ยนแล้ว กรุณาสร้างพรอมป์ใหม่</p>
           ) : clip.videoPrompt ? (
             <>
-              <ReferenceSlots slots={clip.referenceSlots} />
+              <ReferenceSlots clip={clip} resources={resources} />
               <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-500">{clip.referenceSlots?.length ? 'MiniMax H3 · 9:16' : 'DY Prompt'} · v{clip.promptVersion}</span>
+                <span className="text-xs text-gray-500">{shortDrama ? 'MiniMax H3 · 9:16' : 'DY Prompt'} · v{clip.promptVersion}</span>
                 <CopyButton text={clip.videoPrompt} />
               </div>
               {!usesLatinVideoPrompt(clip.videoPrompt) && <p className="text-sm text-amber-800">
@@ -65,9 +68,10 @@ function ClipCard({ clip, index }: { clip: Clip; index: number }) {
   )
 }
 
-function SceneClipsPanel({ scene, defaultOpen, batchPending, dialoguePending, onPendingChange }: {
+function SceneClipsPanel({ scene, defaultOpen, batchPending, dialoguePending, onPendingChange, resources }: {
   scene: Scene; defaultOpen?: boolean; batchPending: boolean; dialoguePending: boolean
   onPendingChange: (sceneId: string, pending: boolean) => void
+  resources: EpisodeImageResources
 }) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(defaultOpen ?? false)
@@ -150,14 +154,16 @@ function SceneClipsPanel({ scene, defaultOpen, batchPending, dialoguePending, on
               ✔ สร้างแล้ว {clips.length} clips
             </div>
           )}
-          {clips.map((clip, i) => <ClipCard key={clip.clipCode} clip={clip} index={i} />)}
+          {clips.map((clip, i) => (
+            <ClipCard key={clip.clipCode} clip={clip} index={i} shortDrama={!!scene.dramaBeat} resources={resources} />
+          ))}
         </div>
       )}
     </div>
   )
 }
 
-export function ClipsStep({ episodeId }: Props) {
+export function ClipsStep({ episodeId, resources }: Props) {
   const qc = useQueryClient()
   const approvalPending = useIsMutating({ mutationKey: shotApprovalKey(episodeId) }) > 0
   const { data: episodeStatus } = useEpisodeStatus(episodeId)
@@ -235,7 +241,8 @@ export function ClipsStep({ episodeId }: Props) {
 
       <div className="space-y-3">
         {scenes.map((sc, i) => <SceneClipsPanel key={sc._id} scene={sc} defaultOpen={i === 0}
-          batchPending={genAll.isPending || approvalPending} dialoguePending={dialoguePending} onPendingChange={onPendingChange} />)}
+          batchPending={genAll.isPending || approvalPending} dialoguePending={dialoguePending} onPendingChange={onPendingChange}
+          resources={resources} />)}
       </div>
     </div>
   )

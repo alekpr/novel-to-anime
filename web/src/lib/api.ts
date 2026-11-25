@@ -1,5 +1,6 @@
 import axios from 'axios'
-import type { DramaCameraAngle } from '../../../src/utils/dramaCamera'
+import type { CameraSetup, DramaCameraAngle, PortraitFraming } from '../../../src/utils/dramaCamera'
+import type { VideoReferenceSlot } from '../../../src/utils/videoClipInputs'
 
 const api = axios.create({ baseURL: '/api' })
 
@@ -132,6 +133,8 @@ export interface Shot {
   shotType: string
   camera: string
   cameraAngle?: DramaCameraAngle
+  cameraSetup?: CameraSetup
+  portraitFraming?: PortraitFraming | null
   durationSec: number
   action: string
   characterIds?: (string | { _id: string; name: string })[]
@@ -154,7 +157,8 @@ export interface Clip {
     sourcePromptVersion?: number
   }
   stale?: boolean
-  referenceSlots?: { index: number; name: string; role: 'character' | 'location'; resourceKey?: string }[]
+  referenceSlots?: VideoReferenceSlot[]
+  speakerCharacterIds?: string[]
 }
 
 export interface Job {

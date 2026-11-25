@@ -11,7 +11,7 @@ import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
 import { queues } from "../queues/jobRunner.js";
 
-import { DRAMA_REPLAN_MESSAGE, fitsDramaScene, hasInvalidDramaScenes, needsDramaVideoPrompt } from "../utils/shortDrama.js";
+import { DRAMA_REPLAN_MESSAGE, fitsDramaScene, hasInvalidDramaScenes, needsDramaVideoPromptRefresh } from "../utils/shortDrama.js";
 import { countDramaDialogue, dramaSpeechSeconds, isSpokenLine } from "../utils/dramaDialogue.js";
 
 async function invalidateShotApproval(sceneId: unknown) {
@@ -92,13 +92,13 @@ export async function shotRoutes(app: FastifyInstance) {
       }
 
       const shotCount = shots.length;
-      if (!needsDramaVideoPrompt(approvedScene)) return { shotCount, promptStatus: "unchanged" };
+      if (!needsDramaVideoPromptRefresh(approvedScene)) return { shotCount, promptStatus: "unchanged" };
       try {
         await queues.prompts.add(() => runShortDramaPrompt(approvedScene), { throwOnTimeout: true });
         return { shotCount, promptStatus: "updated" };
       } catch (error) {
         const latest = await Scene.findById(id).select("shotsApproved dramaBeat clips").lean<ApprovalScene>();
-        if (latest?.shotsApproved && !needsDramaVideoPrompt(latest)) {
+        if (latest?.shotsApproved && !needsDramaVideoPromptRefresh(latest)) {
           return { shotCount, promptStatus: "unchanged" };
         }
         req.log.warn({ sceneId: id, errorType: error instanceof Error ? error.name : "UnknownError" }, "Prompt refresh after shot approval failed");
@@ -178,9 +178,9 @@ export async function shotRoutes(app: FastifyInstance) {
       })).min(1),
     }).refine(({ dialogue }) =>
       dialogue.every(line => charMap.has(line.speakerName) && isSpokenLine(line.lineTh)) &&
-      (!scene?.dramaBeat || (dialogue.length === 1 && dialogue[0].tone.trim().length > 0 &&
+      (!scene?.dramaBeat || (dialogue.every(line => line.tone.trim().length > 0) &&
         dramaSpeechSeconds(dialogue) <= durationSec)),
-    `Return one essential spoken line for a visible speaker with vocal direction, short enough to speak naturally within ${durationSec}s.`);
+    `Return only the essential turns in order, from visible speakers with vocal direction, that fit naturally within ${durationSec}s.`);
 
     const generated = await callStructured({
       system: "คุณคือนักเขียนบท สร้างบทสนทนาที่เป็นธรรมชาติและตรงกับบุคลิกตัวละคร ตอบเป็น JSON เท่านั้น",
@@ -194,7 +194,7 @@ Shot: ${shot.shotCode} | action: ${shot.action} | emotion: ${shot.emotion ?? ""}
 ${charContext || "(ไม่มี)"}
 
 ${scene?.dramaBeat
-  ? `เขียนบทพูดสั้นจากผู้พูดคนเดียวที่อยู่ในช็อต สื่อข้อมูลหรือการตัดสินใจเพียงอย่างเดียวใน ${durationSec} วินาที เผื่อจังหวะหายใจ ตัดคำเกริ่นและคำอธิบายที่ภาพเล่าอยู่แล้ว ระบุน้ำเสียงด้วย`
+  ? `เขียนบทโต้ตอบเฉพาะท่อนที่จำเป็นตามลำดับ ใช้ผู้พูดที่อยู่ในช็อต ให้พูดจบได้ตามธรรมชาติใน ${durationSec} วินาทีและระบุน้ำเสียงทุกท่อน`
   : "สร้างบทสนทนา 1-3 ประโยคที่เหมาะกับ action และ emotion ของ shot นี้"}
 ตอบ JSON: { "dialogue": [{ "speakerName": "ชื่อ", "lineTh": "บทพูด", "tone": "น้ำเสียง" }] }`,
       schema: DialogueResult,

@@ -6,21 +6,9 @@ Write all output fields in English, including titles, scene descriptions, refere
 
 ## Camera Field Rules
 
-Specify: **movement + angle + lens feel** as a single concise phrase.
+Specify physical placement, angle and movement as a single concise phrase. When a planned camera setup is supplied, preserve its composition and describe only compatible movement. The app writes the exact focal length and shot-size label, so omit these values from the camera phrase.
 
-**Angle vocabulary** — choose based on scene emotion:
-
-| Emotion / Situation | Angle to use |
-|---|---|
-| Powerful villain/hero reveal | Low-Angle |
-| Giant creature / overwhelming scale | Worm's-Eye View |
-| Character weak, cornered, hopeless | High-Angle |
-| Panic, confusion, mental breakdown | Dutch Angle |
-| Normal dialogue, everyday scene | Eye-Level |
-| Two-person conversation / negotiation | Over-the-Shoulder (OTS) |
-| Immersive tension / first-person danger | POV |
-| Duel / stealth / ground detail | Ground-Level |
-| Overview / tactical / god's perspective | Bird's-Eye View |
+**Camera placement:** preserve the planned angle and screen direction. Where the plan leaves room, place the camera after considering the actors' positions, eyelines, and what the audience needs to see. Use a two-shot for shared action, an over-the-shoulder when the relationship matters, or a close-up when a detail or response changes the beat. Movement should follow performance or reveal information; a stationary camera can hold a compelling performance.
 
 **Movement vocabulary:**
 - Static, Pan (horizontal rotate), Tilt (vertical rotate — NOT Pan), Dolly In/Out (camera moves physically), Zoom In/Out (lens only — no camera move), Tracking/Trucking (follows subject), Crane/Jib (vertical lift), Handheld (organic shake), Steadicam (smooth follow), Arc/Orbit (circular around subject), Rack Focus (shift focus point), Whip Pan (fast blur transition), Dolly Zoom/Vertigo (dolly + zoom opposite)
@@ -29,11 +17,11 @@ Specify: **movement + angle + lens feel** as a single concise phrase.
 - ECU (Extreme Close-Up: eyes/detail only), CU (Close-Up: face to shoulder), MCU (Medium Close-Up: head to chest), MS (Medium Shot: head to waist), MLS/Cowboy (head to knee), LS/Wide (full body + environment), ELS/Establishing (wide landscape, character tiny)
 
 **Key rules:**
-- 1 shot = 1 primary angle + 1 primary movement — split into new shot if angle changes
-- Shots with dialogue MUST use MLS or closer (ECU/CU/MCU/MS/MLS) — lip sync is invisible in LS/ELS
-- Match camera to emotion: tense → Handheld/tight; peaceful → slow Dolly/wide; reveal → Crane or Tilt up
+- Preserve the supplied shot list and its cut points. Within each shot, keep one primary angle and follow the planned movement.
+- Preserve the planned dialogue framing. For a portrait medium close-up or close-up, keep the active speaker's face and mouth prominent through the whole line, including while they move.
+- When the plan leaves the camera open, choose a movement that serves the action and fits the established camera axis.
 - **Prefer tight shots (CU/MCU/MS) for character shots** — AI video renders photorealistic character detail far better at close range; LS/ELS only for environment-only establishing shots
-- **Max 2 named characters per shot** — if scene has 3+ characters, cut between pairs using OTS/reaction/insert; remaining characters are "background figures"
+- Keep the planned framing and visible speakers. Carry a conversation across the existing shots with continuous screen positions and eyelines.
 - Example: `"slow dolly-in, low-angle, MCU"` / `"static, OTS eye-level, MS"` / `"handheld tracking, dutch angle, CU"`
 
 ---
@@ -59,7 +47,8 @@ Write 2–3 sentences per shot covering:
 
 - DO NOT include dialogue text in description
 - Maintain visual consistency: same surface textures, weather, lighting across shots in the same scene
-- If shot has 3+ characters, focus description on 1–2 foreground characters using `{{char:ID}}` tokens; describe the rest as "background figures" without identity
+- Follow the supplied cut and blocking. Continue the action or reaction from the previous frame and avoid adding cutaways, repeated gestures, or pauses.
+- In speaking shots, preserve which gestures and reactions overlap speech. Write concurrent action as occurring while the speaker talks. Carry an ongoing gesture into the next shot from its current position.
 - Background extras: describe as "background figures" — no identity retention needed
 
 ---

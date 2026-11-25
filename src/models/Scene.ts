@@ -14,6 +14,7 @@ const clipSchema = new Schema({
   durationSec: Number,
   referencePictures: [referencePictureSchema],
   referenceSlots: [{ _id: false, index: Number, name: String, role: String, resourceKey: String }],
+  speakerCharacterIds: { type: [Schema.Types.ObjectId], default: undefined },
   videoPrompt: { type: String, default: "" },
   promptVersion: { type: Number, default: 1 },
   promptRevision: {
@@ -48,6 +49,7 @@ const sceneSchema = new Schema({
     type: new Schema({
       entry: String,
       exit: String,
+      continuesPrevious: Boolean,
       dialoguePurpose: String,
       dialogueBudgetSec: Number,
       openingAngle: { type: String, enum: DRAMA_CAMERA_ANGLES },

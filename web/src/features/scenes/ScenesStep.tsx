@@ -159,7 +159,7 @@ function SceneCard({ scene, onClick, selected, onEdit }: { scene: Scene; onClick
           )}
           {scene.dramaBeat.dialoguePurpose && <p>
             บทพูด · {scene.dramaBeat.dialoguePurpose}
-            {scene.dramaBeat.dialogueBudgetSec ? ` · เวลาพูดไม่เกิน ${scene.dramaBeat.dialogueBudgetSec} วินาที` : ''}
+            {scene.dramaBeat.dialogueBudgetSec ? ` · เวลาพูดประมาณ ${scene.dramaBeat.dialogueBudgetSec} วินาที` : ''}
           </p>}
           <p className={validDuration ? undefined : 'text-orange-700'}>
             {validDuration ? `1 คลิป · ${scene.estDurationSec} วินาที` : 'ต้องแบ่งซีนใหม่'}

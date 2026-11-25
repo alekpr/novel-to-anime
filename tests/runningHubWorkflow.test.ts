@@ -17,6 +17,7 @@ describe("automatic RunningHub inputs", () => {
       { nodeId: "12", fieldName: "duration", fieldValue: 12 },
       { nodeId: "12", fieldName: "reference_images", fieldValue: values.imagePaths },
     ] });
+    expect(() => planWorkflow(graph)({ ...values, audioPaths: ["api/voice.wav"] })).toThrow("ไม่รองรับเสียงอ้างอิง");
   });
 
   it("orders numbered fields and leaves unused optional fields blank", () => {
@@ -49,16 +50,19 @@ describe("automatic RunningHub inputs", () => {
       "7": { class_type: "MiniMaxH3ReferenceToVideo", inputs: { width: 1024, height: 576, length: 124,
         prompt: "old", "ref_images.ref_image_0": ["1", 0], "ref_videos.ref_video_0": ["8", 0], clip: ["9", 0] } },
     });
-    const result = planWorkflow(graph)(values);
+    const result = planWorkflow(graph)({ ...values, audioPaths: ["api/mali.wav", "api/niran.mp3"] });
     expect(result).toHaveProperty("workflow");
     if (!("workflow" in result)) throw new Error("Expected native API graph");
     const sent = parseWorkflow(result.workflow);
     expect(sent["7"].inputs).toEqual({
       width: 576, height: 1024, length: 288, prompt: values.prompt,
       clip: ["9", 0], "ref_images.ref_image_0": ["2", 0], "ref_images.ref_image_1": ["3", 0],
+      "ref_audios.ref_audio_0": ["4", 0], "ref_audios.ref_audio_1": ["5", 0],
     });
     expect(sent["2"].inputs.image).toBe("api/first.png");
     expect(sent["3"].inputs.image).toBe("api/second.webp");
+    expect(sent["4"]).toEqual({ class_type: "LoadAudio", inputs: { audio: "api/mali.wav" } });
+    expect(sent["5"]).toEqual({ class_type: "LoadAudio", inputs: { audio: "api/niran.mp3" } });
     expect(graph["7"].inputs.prompt).toBe("old");
   });
 

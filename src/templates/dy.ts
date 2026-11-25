@@ -7,6 +7,10 @@
 
 import type { SceneVideoPromptDraftType, ShotDraftType } from "../schemas/llm.js";
 import { splitIntoClips, type ShotForSplit } from "../services/clipSplitter.js";
+import { characterImageKey, locationImageKey, propImageKey } from "../utils/imageReferenceKeys.js";
+import type { VideoReferenceSlot } from "../utils/videoClipInputs.js";
+import { cameraSetupDirection } from "../utils/dramaCamera.js";
+import { clipOpeningContinuity } from "./clipOpening.js";
 
 // ---- Types ----
 
@@ -16,6 +20,7 @@ export type SubjectDef = {
   entityId: string;
   block: string;
   pictureRef?: number;
+  reference?: Omit<VideoReferenceSlot, "index" | "role">;
   speakerIndex?: number;
 };
 
@@ -27,15 +32,17 @@ export type ClipContext = {
   subjects: SubjectDef[];
   referencePictures: Array<{ index: number; description: string }>;
   dialogueLanguage: string;
+  openingBlocking?: string;
 };
 
 export type DYAssembleInput = {
   draft: SceneVideoPromptDraftType;
+  openingBlocking?: string;
   locationId: string;
   locationBlock: string;
   locationName: string;
-  characters: Array<{ id: string; appearanceBlock: string; name: string }>;
-  props: Array<{ name: string; visualPrompt: string }>;
+  characters: Array<{ id: string; appearanceBlock: string; name: string; resourceKey?: string }>;
+  props: Array<{ id: string; name: string; visualPrompt: string }>;
   referencePictures: Array<{ index: number; description: string }>;
   dialogueLanguage: string;
   clipPolicy: { maxClipSec: number; targetClipSec: number; minClipSec: number };
@@ -46,7 +53,7 @@ export type DYAssembleInput = {
 };
 
 export type DYAssembleResult = {
-  clips: Array<{ durationSec: number; prompt: string; shotIds: string[] }>;
+  clips: Array<{ durationSec: number; prompt: string; shotIds: string[]; referenceSlots: VideoReferenceSlot[]; speakerCharacterIds: string[] }>;
   validationErrors: string[];
 };
 
@@ -62,6 +69,7 @@ export function assembleDY(input: DYAssembleInput): DYAssembleResult {
     id: String(i),
     durationSec: sh.durationSec,
     breakQuality: sh.beat.breakQuality,
+    cameraAngle: sh.cameraAngle,
   }));
 
   // S4b: แบ่ง clips
@@ -74,6 +82,7 @@ export function assembleDY(input: DYAssembleInput): DYAssembleResult {
   for (let ci = 0; ci < clipGroups.length; ci++) {
     const group = clipGroups[ci];
     const clipShots = draft.shots.slice(shotOffset, shotOffset + group.length);
+    const openingBlocking = ci === 0 ? input.openingBlocking : draft.shots[shotOffset - 1].endBlocking ?? "";
     shotOffset += group.length;
 
     const clipDuration = group.reduce((s, sh) => s + sh.durationSec, 0);
@@ -92,6 +101,7 @@ export function assembleDY(input: DYAssembleInput): DYAssembleResult {
         entityId: input.locationId,
         block: locationBlock,
         pictureRef: referencePictures.length > 0 ? 1 : undefined,
+        reference: input.locationId ? { name: locationName, resourceKey: locationImageKey(input.locationId) } : undefined,
       },
       ...charsInClip.map((c, i) => ({
         index: i + 2,
@@ -99,6 +109,7 @@ export function assembleDY(input: DYAssembleInput): DYAssembleResult {
         entityId: c.id,
         block: c.appearanceBlock,
         pictureRef: referencePictures.length > 1 ? 2 : (referencePictures.length > 0 ? 1 : undefined),
+        reference: { name: c.name, resourceKey: c.resourceKey ?? characterImageKey(c.id) },
       })),
     ];
 
@@ -114,8 +125,18 @@ export function assembleDY(input: DYAssembleInput): DYAssembleResult {
         role: "prop",
         entityId: p.name,
         block: p.visualPrompt,
+        reference: { name: p.name, resourceKey: propImageKey(p.id) },
       });
     });
+
+    const referenceSlots: VideoReferenceSlot[] = [];
+    if (!referencePictures.length) {
+      for (const subject of subjects) {
+        if (!subject.reference) continue;
+        subject.pictureRef = referenceSlots.length + 1;
+        referenceSlots.push({ ...subject.reference, index: subject.pictureRef, role: subject.role });
+      }
+    }
 
     // สร้าง speaker index map (เรียงตามลำดับที่พูดครั้งแรกใน clip)
     const speakerOrder = getSpeakerOrder(clipShots);
@@ -125,7 +146,7 @@ export function assembleDY(input: DYAssembleInput): DYAssembleResult {
     });
 
     // validate
-    const errs = validateClip(clipShots, subjects, clipDuration, clipPolicy, referencePictures);
+    const errs = validateClip(clipShots, subjects, clipDuration, clipPolicy, referencePictures.length || referenceSlots.length);
     validationErrors.push(...errs.map((e) => `Clip ${ci + 1}: ${e}`));
 
     const prompt = buildDYPrompt({
@@ -136,12 +157,15 @@ export function assembleDY(input: DYAssembleInput): DYAssembleResult {
       subjects,
       referencePictures,
       dialogueLanguage,
+      openingBlocking,
     }, draft, locationName, promptPrefix, artStyle, aspectRatio, negativePrompt);
 
     clips.push({
       durationSec: clipDuration,
       prompt,
       shotIds: group.map((_, i) => String(shotOffset - group.length + i)),
+      referenceSlots,
+      speakerCharacterIds: speakerOrder,
     });
   }
 
@@ -168,10 +192,13 @@ function buildDYPrompt(
       const picRef = subj.pictureRef ? ` in <Picture ${subj.pictureRef}>` : "";
       lines.push(`<Subject ${subj.index}> is the ${locationName} environment${picRef}, ${subj.block}.`);
     } else if (subj.role === "prop") {
-      lines.push(`<Subject ${subj.index}> is the prop "${subj.entityId}": ${subj.block}.`);
+      const picRef = subj.pictureRef ? ` shown in <Picture ${subj.pictureRef}>` : "";
+      lines.push(`<Subject ${subj.index}> is the prop "${subj.entityId}"${picRef}: ${subj.block}.`);
     } else {
       const picRef = subj.pictureRef
-        ? ` shown in <Picture 1> and in the ${subj.index === 2 ? "left" : "right"} close-up of <Picture ${subj.pictureRef}>`
+        ? ctx.referencePictures.length
+          ? ` shown in <Picture 1> and in the ${subj.index === 2 ? "left" : "right"} close-up of <Picture ${subj.pictureRef}>`
+          : ` shown in <Picture ${subj.pictureRef}>`
         : "";
       lines.push(`<Subject ${subj.index}> is the character${picRef}, ${subj.block}.`);
     }
@@ -193,7 +220,7 @@ function buildDYPrompt(
     const shotNums = ctx.shots
       .map((sh, i) => {
         const inShot = subj.role === "location" ||
-          sh.charactersInShot.includes(subj.entityId);
+          (subj.role === "prop" ? sh.propsInShot?.includes(subj.entityId) : sh.charactersInShot.includes(subj.entityId));
         return inShot ? `[Shot ${i + 1}]` : null;
       })
       .filter(Boolean)
@@ -219,7 +246,11 @@ function buildDYPrompt(
         return `${sNum} speaks ${d.tone}: <d>[${ctx.dialogueLanguage}] ${d.text}</d>`;
       })
       .join(" ");
-    lines.push(`\n[Shot ${i + 1}] ${timeStr}${desc}${dialogueStr ? " " + dialogueStr : ""}`);
+    const cameraAngle = sh.cameraAngle ? `Camera angle: ${sh.cameraAngle}. ` : "";
+    const cameraSetup = sh.cameraSetup ? `${cameraSetupDirection(sh.cameraSetup)} ` : "";
+    const camera = sh.camera?.trim() ? `Camera: ${sh.camera.trim().replace(/[.!?]$/, "")}. ` : "";
+    lines.push(`\n[Shot ${i + 1}] ${timeStr}${cameraAngle}${cameraSetup}${camera}${desc}${dialogueStr ? " " + dialogueStr : ""}`);
+    if (i === 0 && ctx.openingBlocking !== undefined) lines.push(clipOpeningContinuity(ctx.openingBlocking));
     timeMs += sh.durationSec * 1000;
   }
 
@@ -241,7 +272,7 @@ function validateClip(
   subjects: SubjectDef[],
   durationSec: number,
   policy: { maxClipSec: number; minClipSec: number },
-  pictures: Array<{ index: number; description: string }>
+  pictureCount: number
 ): string[] {
   const errors: string[] = [];
 
@@ -271,8 +302,8 @@ function validateClip(
 
   // ตรวจ Picture refs ตรงกับจำนวนที่แนบ
   const maxPicRef = Math.max(0, ...subjects.map((s) => s.pictureRef ?? 0));
-  if (maxPicRef > pictures.length)
-    errors.push(`prompt อ้างถึง <Picture ${maxPicRef}> แต่มีเพียง ${pictures.length} ภาพ`);
+  if (maxPicRef > pictureCount)
+    errors.push(`prompt อ้างถึง <Picture ${maxPicRef}> แต่มีเพียง ${pictureCount} ภาพ`);
 
   return errors;
 }

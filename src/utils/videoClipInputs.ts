@@ -1,4 +1,11 @@
 export const MAX_REFERENCE_IMAGES = 9;
+export type VideoReferenceSlot = {
+  index: number;
+  name: string;
+  role: "character" | "location" | "prop";
+  resourceKey?: string;
+};
+
 export const MAX_REFERENCE_AUDIOS = 3;
 export const MAX_REFERENCE_AUDIO_BYTES = 20_000_000;
 export function supportedReferenceAudio(name: string, bytes: number) {

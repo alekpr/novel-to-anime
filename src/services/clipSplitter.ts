@@ -1,7 +1,10 @@
+import { distinctDramaAngles, type DramaCameraAngle } from "../utils/dramaCamera.js";
+
 export type ShotForSplit = {
   id: string;
   durationSec: number;
   breakQuality: "hard" | "soft" | "avoid";
+  cameraAngle?: DramaCameraAngle;
 };
 
 export type ClipPolicy = {
@@ -28,6 +31,9 @@ export function splitIntoClips(shots: ShotForSplit[], pol: ClipPolicy): ShotForS
   best[0] = 0;
 
   for (let j = 1; j <= n; j++) {
+    const outgoing = shots[j - 1].cameraAngle;
+    const incoming = shots[j]?.cameraAngle;
+    if (outgoing && incoming && !distinctDramaAngles(outgoing, incoming)) continue;
     for (let i = j - 1; i >= 0; i--) {
       const d = dur(i, j);
       if (d > pol.maxClipSec) break;
@@ -38,10 +44,11 @@ export function splitIntoClips(shots: ShotForSplit[], pol: ClipPolicy): ShotForS
     }
   }
 
-  if (!isFinite(best[n])) {
-    // มี shot เดี่ยวยาวกว่า maxClipSec — clamp แล้ว retry
-    const clamped = shots.map(sh => ({ ...sh, durationSec: Math.min(sh.durationSec, pol.maxClipSec) }));
-    return splitIntoClips(clamped, pol);
+  if (!Number.isFinite(best[n])) {
+    if (shots.some(shot => shot.durationSec > pol.maxClipSec)) {
+      throw new Error("แบ่งคลิปตาม maxClipSec ไม่ได้ กรุณาปรับช็อตที่ยาวเกินเพดานแล้วลองอีกครั้ง");
+    }
+    throw new Error("แบ่งคลิปให้มุมเปิดต่างจากมุมปิดคลิปก่อนหน้าไม่ได้ กรุณาปรับมุมกล้องที่จุดตัดแล้วลองอีกครั้ง");
   }
 
   const clips: ShotForSplit[][] = [];

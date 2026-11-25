@@ -11,7 +11,8 @@ import { Job } from "../models/Job.js";
 import { Project } from "../models/Project.js";
 import { DRAMA_EP_SECONDS, DRAMA_MIN_CLIP_SECONDS, DRAMA_MAX_CLIP_SECONDS, isDramaClipDuration, minimumDramaSceneCount } from "../utils/shortDrama.js";
 import { config } from "../config/index.js";
-import { DRAMA_CAMERA_ANGLES, distinctDramaAngles } from "../utils/dramaCamera.js";
+import { DRAMA_CAMERA_ANGLES, distinctDramaAngles, isPortraitRatio } from "../utils/dramaCamera.js";
+import { dramaSpeechSeconds, isImmediateScriptedReply, scriptedDramaDialogue } from "../utils/dramaDialogue.js";
 
 function replaceIndexes(text: string, charMap: Map<string, string>, locMap: Map<string, string>): string {
   return text.replace(/(?:CHAR|LOC)_\d+/g, token => charMap.get(token) ?? locMap.get(token) ?? token);
@@ -34,6 +35,7 @@ export async function runSceneBreakdown(
   const project = await Project.findById(projectId).lean();
   const configuredDuration = episode.targetDurationSec ?? project?.targetEpDurationSec ?? DRAMA_EP_SECONDS;
   const shortDrama = (project?.videoModel?.name ?? project?.styleGuide?.targetVideoModel ?? "minimax-h3") === "minimax-h3";
+  const aspectRatio = project?.styleGuide?.aspectRatio ?? (shortDrama ? "9:16" : "16:9");
   const targetEpDurationSec = shortDrama ? Math.round(configuredDuration) : configuredDuration;
   if (shortDrama && targetEpDurationSec < DRAMA_MIN_CLIP_SECONDS) {
     throw new Error(`เวลารวมของตอนต้องอย่างน้อย ${DRAMA_MIN_CLIP_SECONDS} วินาทีสำหรับ MiniMax H3`);
@@ -67,12 +69,15 @@ export async function runSceneBreakdown(
   const charField = useGemini ? `"characterIds": ["CHAR_1", "CHAR_2"]` : `"characterNames": ["ชื่อตัวละคร"]`;
   const charNote = useGemini ? "use CHAR_N/LOC_N IDs only" : "ใช้ชื่อจริงจาก Bible";
   const minimumScenes = minimumDramaSceneCount(targetEpDurationSec);
+  const scriptedDialogue = shortDrama ? scriptedDramaDialogue(Array.from(episode.paragraphs)) : [];
+  const dialogueInRange = (from: number, to: number) => scriptedDialogue.filter(line => line.idx >= from && line.idx <= to);
 
   const userPrompt = `
 ## Target EP duration
 ${shortDrama
   ? `${targetEpDurationSec} วินาทีพอดี คำนวณได้อย่างน้อย ${minimumScenes} ซีน เลือกจำนวนจริงตามเนื้อเรื่อง หนึ่งซีนสร้างหนึ่งคลิป ให้ estDurationSec ของทุกซีนเป็นจำนวนเต็ม ${DRAMA_MIN_CLIP_SECONDS}–${DRAMA_MAX_CLIP_SECONDS} วินาที และผลรวมตรงกับเวลาของตอน ส่ง entry, exit, openingAngle, closingAngle และ dialogueBudgetSec ทุกซีน มุมใช้ ${DRAMA_CAMERA_ANGLES.join(", ")} พร้อม supportingLocations สำหรับสถานที่รองที่เห็นจากสถานที่หลัก และ wardrobe โดยใช้ชื่อชุดจากรายการเมื่อกำหนดได้`
   : `อย่างน้อย ${targetEpDurationSec} วินาที — รวม estDurationSec ทุก scene ต้องได้ถึงเป้าหมายนี้`}
+${isPortraitRatio(aspectRatio) ? `\nเฟรมแนวตั้ง ${aspectRatio} ให้ entry และ exit บอกว่าใครหรืออะไรเป็นจุดสนใจ และวางคนที่เหลื่อมกันตามความลึกเมื่อมีบทโต้ตอบ จัดมุมรอยต่อให้ยังอ่านสายตาและการเคลื่อนไหวได้ในเฟรมแคบ` : ""}
 ${project?.genre ? `
 ## Drama genre
 ${JSON.stringify(project.genre)} — ใช้กำกับอารมณ์และจังหวะของซีนตามเหตุการณ์ในต้นฉบับ` : ""}
@@ -85,6 +90,10 @@ ${locList || "(none)"}
 
 ## Novel text EP ${episode.number}
 ${novelText}
+
+${scriptedDialogue.length ? `## Estimated speaking time for labelled dialogue
+${scriptedDialogue.map(line => `[${line.idx}] ~${dramaSpeechSeconds([line]).toFixed(1)}s`).join("\n")}
+Assign every labelled dialogue paragraph once, in source order, with its complete words. If the previous scene has enough time for the next speaker's immediate reply, end that scene on the reply and start the next scene on what happens because of it. Use the speaking estimates before allocating visual action.` : ""}
 
 ## Return JSON (ตัวอย่างโครงสร้างของหนึ่งรายการ):
 \`\`\`json
@@ -100,7 +109,7 @@ ${novelText}
       ${charField},
       "fromParagraph": 0,
       "toParagraph": 5,
-      "estDurationSec": ${shortDrama ? 12 : 45}${shortDrama ? ', "entry": "สภาพเปิด", "exit": "สภาพจบ", "openingAngle": "side-profile", "closingAngle": "frontal", "dialoguePurpose": "ข้อมูลหรือการตัดสินใจเดียวที่คำพูดขยับ หรือสตริงว่างสำหรับซีนภาพล้วน", "dialogueBudgetSec": 3, "supportingLocations": [], "wardrobe": {}' : ""}
+      "estDurationSec": ${shortDrama ? 12 : 45}${shortDrama ? ', "entry": "สภาพเปิด", "exit": "สภาพจบ", "continuesPrevious": false, "openingAngle": "side-profile", "closingAngle": "frontal", "dialoguePurpose": "ข้อมูลหรือการตัดสินใจเดียวที่คำพูดขยับ หรือสตริงว่างสำหรับซีนภาพล้วน", "dialogueBudgetSec": 3, "supportingLocations": [], "wardrobe": {}' : ""}
     }
   ]
 }
@@ -127,6 +136,7 @@ ${novelText}
       ctx.addIssue({ code: "custom", path: ["scenes"], message:
         `The scene durations total ${duration} seconds. Adjust the scene budgets to total exactly ${targetEpDurationSec} seconds.` });
     }
+    const claimedDialogueParagraphs = new Set<number>();
     scenes.forEach((scene, index) => {
       const previous = scenes[index - 1];
       if (!scene.openingAngle || !scene.closingAngle ||
@@ -135,12 +145,44 @@ ${novelText}
           `Supply openingAngle and closingAngle. The opener must clearly differ from the previous closer (${previous?.closingAngle ?? "none"}). A closer crop, new lens or slight pivot is the same setup.` });
       }
       const budget = scene.dialogueBudgetSec;
-      if (budget === undefined || (scene.dialoguePurpose ? budget < 1 || budget > scene.estDurationSec : budget !== 0)) {
+      const sourceDialogue = dialogueInRange(scene.fromParagraph, scene.toParagraph);
+      const minimumSpeech = dramaSpeechSeconds(sourceDialogue);
+      if (sourceDialogue.length && (!scene.dialoguePurpose || minimumSpeech > scene.estDurationSec ||
+          sourceDialogue.some(line => claimedDialogueParagraphs.has(line.idx)))) {
+        ctx.addIssue({ code: "custom", path: ["scenes", index], message:
+          `The dialogue in this paragraph range needs about ${minimumSpeech.toFixed(1)}s. Assign it once, give it enough scene time, and describe its purpose.` });
+      }
+      if (previous && scene.fromParagraph < previous.fromParagraph) {
+        ctx.addIssue({ code: "custom", path: ["scenes", index, "fromParagraph"], message:
+          "Keep the source paragraphs in chronological order." });
+      }
+      const reply = sourceDialogue[0];
+      if (previous && reply && scene.fromParagraph === reply.idx && previous.toParagraph === reply.idx - 1) {
+        const earlierDialogue = dialogueInRange(previous.fromParagraph, previous.toParagraph);
+        const priorLine = earlierDialogue.at(-1);
+        const replyParagraph = sourceDialogue.filter(line => line.idx === reply.idx);
+        const hasNextBeat = episode.paragraphs.some(({ idx, text }) =>
+          typeof idx === "number" && idx > reply.idx && idx <= scene.toParagraph && !!text?.trim() && !text.trimStart().startsWith("#"));
+        if (priorLine && hasNextBeat && isImmediateScriptedReply(priorLine, reply) &&
+            dramaSpeechSeconds([...earlierDialogue, ...replyParagraph]) <= previous.estDurationSec) {
+          ctx.addIssue({ code: "custom", path: ["scenes", index, "fromParagraph"], message:
+            `The immediate reply in paragraph ${reply.idx} fits the preceding scene. Keep the two turns together and open this scene on the next action or line.` });
+        }
+      }
+      sourceDialogue.forEach(line => claimedDialogueParagraphs.add(line.idx));
+      if (!sourceDialogue.length && (budget === undefined || (scene.dialoguePurpose ? budget < 1 || budget > scene.estDurationSec : budget !== 0))) {
         ctx.addIssue({ code: "custom", path: ["scenes", index, "dialogueBudgetSec"], message:
           "Budget only the seconds needed for the essential spoken beat, from 1s to the scene duration, or 0 for a silent scene." });
       }
       const locRef = scene.locationId || scene.locationName;
       const charRefs = scene.characterIds.length ? scene.characterIds : scene.characterNames;
+      const castNames = charRefs.map(ref => charReverseMap.get(ref) ?? ref);
+      const missingSpeakers = [...new Set(sourceDialogue.map(line => line.speaker))]
+        .filter(name => charMap.has(name) && !castNames.includes(name));
+      if (missingSpeakers.length) {
+        ctx.addIssue({ code: "custom", path: ["scenes", index, "characterNames"], message:
+          `Include the scripted speakers in this scene's cast: ${missingSpeakers.join(", ")}.` });
+      }
       if (scene.dialoguePurpose && !charRefs.length) {
         ctx.addIssue({ code: "custom", path: ["scenes", index, "dialoguePurpose"], message:
           "A scene with spoken dialogue needs at least one character in its cast." });
@@ -159,6 +201,11 @@ ${novelText}
         ctx.addIssue({ code: "custom", path: ["scenes", index], message: "Check scene order, entry/exit, Bible references and original paragraph indexes." });
       }
     });
+    const omitted = [...new Set(scriptedDialogue.map(line => line.idx))].filter(idx => !claimedDialogueParagraphs.has(idx));
+    if (omitted.length) {
+      ctx.addIssue({ code: "custom", path: ["scenes"], message:
+        `Include the scripted dialogue in paragraphs ${omitted.join(", ")}. Give it enough speaking time and assign each paragraph once.` });
+    }
   }) : SceneBreakdownResult;
   const { data, tokens } = await callStructured({
     system: loadPrompt(shortDrama ? "s2-short-drama.txt" : "s2-scenes.txt"),
@@ -217,8 +264,11 @@ ${novelText}
       dramaBeat: shortDrama ? {
         entry: replaceIndexes(s.entry, charReverseMap, locReverseMap),
         exit: replaceIndexes(s.exit, charReverseMap, locReverseMap),
+        continuesPrevious: s.continuesPrevious,
         dialoguePurpose: replaceIndexes(s.dialoguePurpose, charReverseMap, locReverseMap),
-        dialogueBudgetSec: s.dialogueBudgetSec,
+        dialogueBudgetSec: dialogueInRange(s.fromParagraph, s.toParagraph).length
+          ? Math.ceil(dramaSpeechSeconds(dialogueInRange(s.fromParagraph, s.toParagraph)) * 10) / 10
+          : s.dialogueBudgetSec,
         openingAngle: s.openingAngle,
         closingAngle: s.closingAngle,
         clipDurationsSec: [s.estDurationSec],
