@@ -1,5 +1,5 @@
 import { Schema, model, Types } from "mongoose";
-import { DRAMA_CAMERA_ANGLES } from "../utils/dramaCamera.js";
+import { CAMERA_FRAMINGS, DRAMA_CAMERA_ANGLES, PORTRAIT_LAYOUTS } from "../utils/dramaCamera.js";
 
 const dialogueLineSchema = new Schema({
   speakerId: { type: Types.ObjectId, ref: "Character" },
@@ -32,6 +32,22 @@ const shotSchema = new Schema({
   },
   camera: String,
   cameraAngle: { type: String, enum: DRAMA_CAMERA_ANGLES },
+  cameraSetup: {
+    type: new Schema({
+      focalLengthMm: { type: Number, required: true },
+      framing: { type: String, enum: CAMERA_FRAMINGS, required: true },
+      subjectDistanceM: { type: Number, min: 0 },
+    }, { _id: false }),
+    default: undefined,
+  },
+  portraitFraming: {
+    type: new Schema({
+      layout: { type: String, enum: PORTRAIT_LAYOUTS },
+      focusCharacterNames: [String],
+      placement: String,
+    }, { _id: false }),
+    default: undefined,
+  },
   durationSec: { type: Number, default: 4 },
   breakQuality: { type: String, enum: ["hard", "soft", "avoid"], default: "soft" },
   characterIds: [{ type: Types.ObjectId, ref: "Character" }],
@@ -42,6 +58,7 @@ const shotSchema = new Schema({
   direction: {
     type: new Schema({
       blocking: String,
+      endBlocking: String,
       performance: String,
       cut: String,
       backgroundActivity: String,

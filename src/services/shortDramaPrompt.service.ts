@@ -6,14 +6,15 @@ import { Character } from "../models/Character.js";
 import { Location } from "../models/Location.js";
 import { Scene } from "../models/Scene.js";
 import { Shot } from "../models/Shot.js";
+import { PropObject } from "../models/PropObject.js";
 import { assembleShortDramaH3 } from "../templates/shortDramaH3.js";
 import { DRAMA_REPLAN_MESSAGE, fitsDramaScene, isDramaClipDuration } from "../utils/shortDrama.js";
 import { countDramaDialogue } from "../utils/dramaDialogue.js";
 import { Project } from "../models/Project.js";
-import { Episode } from "../models/Episode.js";
-import { characterImageKey, locationImageKey, outfitImageKeys } from "../utils/imageReferenceKeys.js";
+import { characterImageKey, locationImageKey, outfitImageKeys, propImageKey } from "../utils/imageReferenceKeys.js";
 import { usesLatinVideoDirection, usesLatinVideoPrompt } from "../utils/videoPromptLanguage.js";
-import type { DramaCameraAngle } from "../utils/dramaCamera.js";
+import { cameraAngleFromDirection, isPortraitRatio, type CameraSetup, type DramaCameraAngle, type PortraitFraming } from "../utils/dramaCamera.js";
+import { continuesFromNeighbor, validateSceneCameraHandoff } from "./sceneCameraHandoff.js";
 
 const DirectionText = z.string().trim().min(1)
   .refine(usesLatinVideoDirection, "Write all production directions in English without dialogue tags.");
@@ -23,19 +24,23 @@ const VisualDirection = z.object({
   overview: DirectionText,
   references: z.array(z.object({ subject: z.number().int(), description: DirectionText })),
   blocking: DirectionText,
+  openingBlocking: z.string().trim().refine(usesLatinVideoDirection).default(""),
   soundAndEditing: DirectionText,
   shots: z.array(z.object({
     order: z.number().int(),
     direction: DirectionText,
+    portraitFraming: z.string().trim().refine(usesLatinVideoDirection).default(""),
     spokenDelivery: z.array(z.object({
       language: z.string().trim().max(50).regex(/^[a-zA-Z]+(?:[ -][a-zA-Z]+)*$/, "Name the language of the original line in English."),
       cue: SpokenDelivery,
+      actionDuringSpeech: z.string().trim().refine(usesLatinVideoDirection).default(""),
     })),
   })),
 });
 
 export type DramaScene = {
   _id: Types.ObjectId;
+  projectId: Types.ObjectId;
   episodeId: Types.ObjectId;
   updatedAt: Date;
   sceneCode: string;
@@ -52,12 +57,13 @@ export type DramaScene = {
   dramaBeat?: {
     entry: string;
     exit: string;
+    continuesPrevious?: boolean;
     dialoguePurpose?: string;
     supportingLocationIds?: Types.ObjectId[];
     wardrobe?: { characterId: Types.ObjectId; outfit: string }[];
   };
 };
-type CharacterReference = {
+export type CharacterReference = {
   _id: Types.ObjectId;
   name: string;
   appearanceBlock?: string;
@@ -66,6 +72,12 @@ type CharacterReference = {
   outfits?: { name: string; outfitPrompt?: string; description?: string; referenceAppearance?: string }[];
   voice?: { pitch?: string; timbre?: string; accent?: string };
 };
+export type PropReference = {
+  _id: Types.ObjectId;
+  name: string;
+  visualPrompt?: string;
+  description?: string;
+};
 type ApprovedShot = {
   _id: Types.ObjectId;
   shotCode: string;
@@ -73,12 +85,15 @@ type ApprovedShot = {
   durationSec: number;
   camera?: string;
   cameraAngle?: DramaCameraAngle;
+  cameraSetup?: CameraSetup;
+  portraitFraming?: PortraitFraming | null;
   action?: string;
   emotion?: string;
   direction?: { blocking: string; performance: string; cut: string; backgroundActivity: string };
   sfx?: string;
   music?: string;
   characterIds: Types.ObjectId[];
+  propIds?: Types.ObjectId[];
   dialogue: { speakerId?: Types.ObjectId; lineTh?: string; tone?: string; reviewed?: boolean }[];
 };
 
@@ -91,19 +106,25 @@ export async function runShortDramaPrompt(scene: DramaScene) {
 
   const beat = scene.dramaBeat;
   const locationIds = [scene.locationId, ...(beat.supportingLocationIds ?? [])].filter(Boolean);
-  const [characters, locations, shots, earlierScenes] = await Promise.all([
+  const [characters, locations, shots, earlierScenes, project] = await Promise.all([
     Character.find({ _id: { $in: scene.characterIds }, status: "approved" }).lean<CharacterReference[]>(),
     Location.find({ _id: { $in: locationIds }, status: "approved" }).lean<Array<{ _id: Types.ObjectId; name: string; locationBlock?: string; description?: string }>>(),
     Shot.find({ sceneId: scene._id }).sort({ order: 1 }).lean<ApprovedShot[]>(),
     Scene.find({ episodeId: scene.episodeId, order: { $lt: scene.order } })
       .select("estDurationSec").lean<{ estDurationSec?: number }[]>(),
+    Project.findById(scene.projectId).select("styleGuide").lean<{ styleGuide?: { aspectRatio?: string; artStyle?: string } }>(),
   ]);
+  const styleGuide = project?.styleGuide;
+  const portrait = isPortraitRatio(styleGuide?.aspectRatio ?? "9:16");
   if (!fitsDramaScene(shots, sceneDurationSec) || shots.some(shot => !shot.direction || shot.dialogue.some(line => !line.reviewed))) {
     throw new Error("ตรวจเวลารวมของช็อตและอนุมัติบทพูดของซีนอีกครั้ง");
   }
   if (beat.dialoguePurpose && !countDramaDialogue(shots, true)) {
     throw new Error("ซีนนี้ต้องมีบทพูดที่ผ่านการอนุมัติก่อนสร้างพรอมป์");
   }
+  const previous = await validateSceneCameraHandoff(scene, shots);
+  const continuing = continuesFromNeighbor(scene, previous);
+  const previousEndBlocking = continuing ? previous?.endBlocking || beat.entry : undefined;
   const sceneStartSec = earlierScenes.reduce((sum, earlier) => sum + (earlier.estDurationSec ?? 0), 0);
   const charactersById = new Map(characters.map(c => [c._id.toString(), c]));
   const locationsById = new Map(locations.map(l => [l._id.toString(), l]));
@@ -135,22 +156,41 @@ export async function runShortDramaPrompt(scene: DramaScene) {
       description: `${location.name}. ${location.locationBlock || location.description || ""}` });
   }
 
+  const propIds = [...new Set(shots.flatMap(shot => (shot.propIds ?? []).map(String)))];
+  const props = propIds.length
+    ? await PropObject.find({ projectId: scene.projectId, _id: { $in: propIds } }).select("name visualPrompt description").lean<PropReference[]>()
+    : [];
+  const propsById = new Map(props.map(prop => [String(prop._id), prop]));
+  const subjectForProp = new Map<string, number>();
+  for (const id of propIds) {
+    const prop = propsById.get(id);
+    if (!prop) continue;
+    references.push({ name: prop.name, role: "prop", resourceKey: propImageKey(id),
+      description: [prop.name, prop.visualPrompt || prop.description].filter(Boolean).join(". ") });
+    subjectForProp.set(id, references.length);
+  }
+
   const approvedShots = shots.map(shot => ({
     order: shot.order,
     durationSec: shot.durationSec,
     camera: shot.camera,
-    cameraAngle: shot.cameraAngle,
+    cameraAngle: shot.cameraAngle ?? cameraAngleFromDirection(shot.camera),
+    cameraSetup: shot.cameraSetup,
+    portraitFraming: portrait ? shot.portraitFraming ?? undefined : undefined,
     action: shot.action,
     emotion: shot.emotion,
     direction: shot.direction,
     sfx: shot.sfx,
     music: shot.music,
     cast: shot.characterIds.map(id => subjectForCharacter.get(id.toString())).filter(Boolean),
+    propSubjects: [...new Set((shot.propIds ?? []).map(String))].flatMap(id => {
+      const subject = subjectForProp.get(id);
+      return subject === undefined ? [] : [subject];
+    }),
     dialogue: shot.dialogue.map(line => {
       const speakerId = line.speakerId?.toString() ?? "";
       const subject = subjectForCharacter.get(speakerId);
-      if (!subject || !line.lineTh?.trim() || !shot.characterIds.some(id => id.toString() === speakerId) ||
-          shot.dialogue.some(other => other.speakerId?.toString() !== speakerId)) {
+      if (!subject || !line.lineTh?.trim() || !shot.characterIds.some(id => id.toString() === speakerId)) {
         throw new Error(`ตรวจผู้พูดของ ${shot.shotCode}`);
       }
       const voice = charactersById.get(speakerId)?.voice;
@@ -163,7 +203,9 @@ export async function runShortDramaPrompt(scene: DramaScene) {
     system: loadPrompt("s4-short-drama.txt"),
     user: JSON.stringify({
       title: scene.title, summary: scene.summary, mood: scene.mood, timeOfDay: scene.timeOfDay,
-      durationSec: sceneDurationSec, opening: beat.entry, ending: beat.exit,
+      durationSec: sceneDurationSec, aspectRatio: styleGuide?.aspectRatio ?? "9:16",
+      opening: continuing ? undefined : beat.entry, ending: beat.exit,
+      previousEndBlocking,
       references: references.map(({ name, role, description }, i) => ({ subject: i + 1, name, role, description })),
       shots: approvedShots.map(shot => ({
         ...shot,
@@ -171,32 +213,34 @@ export async function runShortDramaPrompt(scene: DramaScene) {
       })),
     }),
     schema: VisualDirection.refine(
-      result => result.references.length === references.length &&
+      result => (!previousEndBlocking || !!result.openingBlocking) && result.references.length === references.length &&
         result.references.every((reference, i) => reference.subject === i + 1) &&
         result.shots.length === approvedShots.length && result.shots.every((shot, i) =>
-        shot.order === approvedShots[i].order && shot.spokenDelivery.length === approvedShots[i].dialogue.length),
-      "Return each reference and shot in order and one spokenDelivery entry per supplied dialogue line.",
+        shot.order === approvedShots[i].order && shot.spokenDelivery.length === approvedShots[i].dialogue.length &&
+        (!approvedShots[i].portraitFraming || !!shot.portraitFraming)),
+      "Return each reference and shot in order, translate previousEndBlocking into openingBlocking when supplied, preserve each portrait framing plan, and return one spokenDelivery per line.",
     ),
     temperature: 0.2,
   });
 
-  const episode = await Episode.findById(scene.episodeId).select("projectId").lean() as any;
-  const project = await Project.findById(episode?.projectId).select("styleGuide").lean() as any;
-  const styleGuide = project?.styleGuide;
-
   const { prompt, references: referenceSlots } = assembleShortDramaH3({
     overview: data.overview,
     blocking: data.blocking,
+    openingBlocking: continuing ? data.openingBlocking : undefined,
     soundAndEditing: data.soundAndEditing,
     references: references.map((reference, i) => ({ ...reference, description: data.references[i].description })),
     shots: approvedShots.map((shot, i) => ({
       durationSec: shot.durationSec,
       cameraAngle: shot.cameraAngle,
+      cameraSetup: shot.cameraSetup,
       direction: data.shots[i].direction,
+      portraitFraming: data.shots[i].portraitFraming,
+      propSubjects: shot.propSubjects,
       dialogue: shot.dialogue.map(({ subject, text }, lineIndex) => ({
         subject, text,
         language: data.shots[i].spokenDelivery[lineIndex].language,
         delivery: data.shots[i].spokenDelivery[lineIndex].cue,
+        actionDuringSpeech: data.shots[i].spokenDelivery[lineIndex].actionDuringSpeech,
       })),
     })),
     aspectRatio: styleGuide?.aspectRatio,
@@ -210,6 +254,7 @@ export async function runShortDramaPrompt(scene: DramaScene) {
     durationSec: sceneDurationSec,
     videoPrompt: prompt,
     referenceSlots,
+    speakerCharacterIds: [...new Set(shots.flatMap(shot => shot.dialogue.map(line => String(line.speakerId))))],
     promptVersion: (scene.clips[0]?.promptVersion ?? 0) + 1,
     stale: false,
   };

@@ -71,6 +71,9 @@ function namedInputs(graph: WorkflowGraph) {
   }
 
   return (input: WorkflowInput): WorkflowRequest => {
+    if (input.audioPaths?.length) {
+      throw new Error("Workflow นี้ไม่รองรับเสียงอ้างอิง กรุณาใช้ Workflow ที่มีโหนด MiniMax H3 Reference to Video");
+    }
     if (!imageList && (imageFields.length < input.imagePaths.length ||
         imageFields.slice(input.imagePaths.length).some(field => field.value !== "" || field.classType === "LoadImage"))) {
       throw new Error(`Workflow มี ${imageFields.length} ช่องภาพที่ตรวจพบ แต่พรอมป์นี้ใช้ ${input.imagePaths.length} ภาพ กรุณาใช้ Workflow ที่รองรับจำนวนภาพนี้`);

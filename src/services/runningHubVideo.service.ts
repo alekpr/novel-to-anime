@@ -128,7 +128,7 @@ export async function submitRunningHubVideo(sceneId: string, clipCode: string, f
       const graph = await getRunningHubWorkflow(settings.apiKey, settings.workflowId);
       const request = planWorkflow(graph);
       const input = { prompt: promptText, ratio, duration: declaredDuration ?? clip.durationSec };
-      request({ ...input, imagePaths: slots.map(() => "check") });
+      request({ ...input, imagePaths: slots.map(() => "check"), audioPaths: audioEntries.map(() => "check") });
       const imagePaths: string[] = [];
       for (const file of files) imagePaths.push(await uploadRunningHubImage(settings.apiKey, file));
       const audioPaths: string[] = [];

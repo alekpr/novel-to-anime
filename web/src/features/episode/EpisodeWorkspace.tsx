@@ -270,7 +270,7 @@ export function EpisodeWorkspace({ projectId }: Props) {
           <ImagePromptsStep projectId={projectId} currentEp={episode?.number ?? 0} resources={imageResources} />
         )}
         {step === 'clips' && episodeId && (
-          <ClipsStep episodeId={episodeId} />
+          <ClipsStep episodeId={episodeId} resources={imageResources} />
         )}
         {episodeId && (step === 'video' || statusData?.steps.some(item => item.key === 'video' && item.status !== 'locked')) && (
           <div hidden={step !== 'video'}>

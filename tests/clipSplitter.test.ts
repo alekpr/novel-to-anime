@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { splitIntoClips, type ShotForSplit, type ClipPolicy } from "../src/services/clipSplitter.js";
+import { distinctDramaAngles, type DramaCameraAngle } from "../src/utils/dramaCamera.js";
 
 const pol: ClipPolicy = { maxClipSec: 15, targetClipSec: 12, minClipSec: 5 };
 
@@ -47,6 +48,18 @@ describe("splitIntoClips", () => {
   it("throws when a single shot exceeds maxClipSec", () => {
     const s = shots([16]);
     expect(() => splitIntoClips(s, pol)).toThrow("maxClipSec");
+  });
+
+  it("uses a different physical angle at a clip boundary instead of a similar view", () => {
+    const angles: DramaCameraAngle[] = ["frontal", "side-profile", "three-quarter", "rear"];
+    const clips = splitIntoClips(shots([5, 5, 5, 5]).map((shot, i) => ({ ...shot, cameraAngle: angles[i] })), pol);
+    expect(clips).toHaveLength(2);
+    expect(distinctDramaAngles(clips[0].at(-1)!.cameraAngle!, clips[1][0].cameraAngle!)).toBe(true);
+  });
+
+  it("asks for a new angle when the scene cannot fit into one clip and no cut changes viewpoint", () => {
+    const sameAngle = shots([10, 10]).map(shot => ({ ...shot, cameraAngle: "frontal" as const }));
+    expect(() => splitIntoClips(sameAngle, pol)).toThrow("มุมเปิดต่างจากมุมปิดคลิปก่อนหน้า");
   });
 
   it("works with maxClipSec = 20 → fewer clips", () => {

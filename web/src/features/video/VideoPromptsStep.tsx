@@ -7,7 +7,9 @@ import type { Clip, ElevenLabsLine, ElevenLabsSpeaker, MusicCue, Scene } from '.
 import type { EpisodeImageResources } from '../images/useImageResources'
 import { referenceUpdateKey } from '../images/updateReferencePrompt'
 import { RunningHubConnection, RunningHubSetup } from './RunningHubSetup'
-import { RunningHubClip, buildSendFormData } from './RunningHubClip'
+import { RunningHubClip } from './RunningHubClip'
+import { buildSendFormData } from './clipReferences'
+import { needsDramaVideoPromptRefresh } from '../../../../src/utils/shortDrama'
 import { runningHubApi, runningHubCountsKey, runningHubSettingsKey } from './runningHubApi'
 import type { RunningHubSettings } from './runningHubApi'
 import { saveEpisodeSubtitles } from './footageStore'
@@ -139,7 +141,7 @@ function SceneVideoPanel({ scene, projectId, resources, settings, generationCoun
             </div>
             {clip.videoPrompt ? (
               <div className="space-y-2">
-                <ReferenceSlots slots={clip.referenceSlots} />
+                <ReferenceSlots clip={clip} resources={resources} />
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-gray-500">{scene.dramaBeat ? 'MiniMax H3 · 9:16' : 'DY Prompt'}</span>
                   <div className="flex gap-1">
@@ -769,7 +771,7 @@ export function VideoPromptsStep({ episodeId, projectId, resources, visible, onI
           )}
           {scenes.map(sc => <SceneVideoPanel key={sc._id} scene={sc} projectId={projectId}
             generationCount={generationCounts.data && (generationCounts.data[sc._id] ?? 0)}
-            updatingFromShots={approvingScenes.includes(sc._id)}
+            updatingFromShots={approvingScenes.includes(sc._id) && needsDramaVideoPromptRefresh(sc)}
             resources={resources} settings={settings.data} visible={visible} onSetup={() => setShowSetup(true)} onImages={onImages} projectRatio={projectRatio} />)}
         </div>
       )}

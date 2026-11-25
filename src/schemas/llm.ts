@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DRAMA_CAMERA_ANGLES } from "../utils/dramaCamera.js";
+import { CAMERA_FRAMINGS, DRAMA_CAMERA_ANGLES, PORTRAIT_LAYOUTS } from "../utils/dramaCamera.js";
 
 // ---- S1: Story Bible Extraction ----
 
@@ -127,6 +127,7 @@ export const LLMScene = z.object({
   estDurationSec: z.number().positive().default(30),
   entry: z.string().trim().default(""),
   exit: z.string().trim().default(""),
+  continuesPrevious: z.boolean().optional(),
   dialoguePurpose: z.string().trim().default(""),
   dialogueBudgetSec: z.number().min(0).optional(),
   openingAngle: z.enum(DRAMA_CAMERA_ANGLES).optional(),
@@ -152,9 +153,16 @@ export const LLMDialogueLine = z.object({
 
 export const ShotDirection = z.object({
   blocking: z.string().trim().min(1),
+  endBlocking: z.string().trim().min(1).optional(),
   performance: z.string().trim().min(1),
   cut: z.string().trim().min(1),
   backgroundActivity: z.string().trim().min(1),
+});
+
+const CameraSetupSchema = z.object({
+  focalLengthMm: z.number().finite().positive(),
+  framing: z.enum(CAMERA_FRAMINGS),
+  subjectDistanceM: z.number().finite().positive().optional(),
 });
 
 export const LLMShot = z.object({
@@ -165,6 +173,12 @@ export const LLMShot = z.object({
   }).pipe(z.enum(["wide", "medium", "close-up", "medium-long", "insert", "establishing", "OTS", "POV"])).catch("medium"),
   camera: z.union([z.string(), z.null()]).transform(v => v ?? "").pipe(z.string()).catch(""),
   cameraAngle: z.enum(DRAMA_CAMERA_ANGLES).optional(),
+  cameraSetup: CameraSetupSchema,
+  portraitFraming: z.object({
+    layout: z.enum(PORTRAIT_LAYOUTS),
+    focusCharacterNames: z.array(z.string().trim().min(1)).max(2),
+    placement: z.string().trim().min(1),
+  }).optional(),
   durationSec: z.number().min(0.5).max(20).default(4),
   breakQuality: z.string().transform((v) => (["hard", "soft", "avoid"].includes(v) ? v : "soft")).pipe(z.enum(["hard", "soft", "avoid"])).catch("soft"),
   characterNames: z.array(z.string()).catch([]),
@@ -200,11 +214,14 @@ export const ShotDraft = z.object({
     note: z.string().optional(),
   }),
   camera: z.string(),
+  cameraSetup: CameraSetupSchema.optional(),
   lighting: z.string().default(""),
   description: z.string(),
+  endBlocking: z.string().trim().optional(),
   dialogue: z.array(DialogueLine4a).max(4).default([]),
   charactersInShot: z.array(z.string()),
   propsInShot: z.array(z.string()).default([]),
+  cameraAngle: z.enum(DRAMA_CAMERA_ANGLES).optional(),
 });
 
 export const SceneVideoPromptDraft = z.object({

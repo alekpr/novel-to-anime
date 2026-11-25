@@ -8,8 +8,8 @@ import { SourceTextPane } from '../../components/SourceTextPane'
 import { useJobProgress } from '../../hooks/useJobProgress'
 import { useEpisodeStatus } from '../../hooks/useEpisodeStatus'
 import { episodesApi, scenesApi, shotApprovalKey, shotsApi } from '../../lib/api'
-import { needsDramaVideoPrompt, shotTimeline } from '../../../../src/utils/shortDrama'
-import { DRAMA_CAMERA_LABELS } from '../../../../src/utils/dramaCamera'
+import { needsDramaVideoPromptRefresh, shotTimeline } from '../../../../src/utils/shortDrama'
+import { cameraSetupLabel, DRAMA_CAMERA_LABELS } from '../../../../src/utils/dramaCamera'
 import type { Scene, Shot } from '../../lib/api'
 
 interface Props {
@@ -75,7 +75,9 @@ function ShotRow({ shot, onUpdated, range, disabled }: {
       <button onClick={() => setOpen(o => !o)}
         className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left">
         <span className="text-xs font-mono text-gray-400 w-28 shrink-0">{shot.shotCode}</span>
-        <span className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{shot.shotType}</span>
+        <span className="text-xs bg-gray-100 px-1.5 py-0.5 rounded" title={shot.cameraSetup ? 'ระยะเลนส์เทียบเท่าฟูลเฟรม' : undefined}>
+          {shot.cameraSetup ? cameraSetupLabel(shot.cameraSetup) : shot.shotType}
+        </span>
         {shot.cameraAngle && <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-800">{DRAMA_CAMERA_LABELS[shot.cameraAngle]}</span>}
         <span className="text-xs text-gray-500 flex-1 truncate">{shot.action}</span>
         <span className="text-xs text-gray-400">{range ? `${range.start.toFixed(1)}–${range.end.toFixed(1)}s` : `${shot.durationSec}s`}</span>
@@ -88,6 +90,17 @@ function ShotRow({ shot, onUpdated, range, disabled }: {
         <div className="border-t px-3 pb-3 pt-2 space-y-2">
           <div className="text-sm">{shot.action}</div>
           <div className="text-xs text-gray-500">{shot.camera}</div>
+          {shot.cameraSetup?.subjectDistanceM !== undefined && (
+            <div className="text-xs text-gray-600">ระยะกล้องถึงตัวละคร {shot.cameraSetup.subjectDistanceM} ม.</div>
+          )}
+          {shot.portraitFraming && (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-gray-600">
+              <dt className="font-medium">เฟรมแนวตั้ง</dt><dd>{shot.portraitFraming.placement}</dd>
+              {shot.portraitFraming.focusCharacterNames.length > 0 && (
+                <><dt className="font-medium">จุดสนใจ</dt><dd>{shot.portraitFraming.focusCharacterNames.join(' · ')}</dd></>
+              )}
+            </dl>
+          )}
           {shot.direction && (
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-gray-600">
               <dt className="font-medium">ตำแหน่งและทิศมอง</dt><dd>{shot.direction.blocking}</dd>
@@ -195,7 +208,7 @@ export function ShotsStep({ episodeId, initialSceneId }: Props) {
   const ranges = shotTimeline(shots)
 
   const selectedScene = scenes.find((s: Scene) => s._id === selectedSceneId)
-  const needsPrompt = !!selectedScene && needsDramaVideoPrompt(selectedScene)
+  const needsPromptRefresh = !!selectedScene && needsDramaVideoPromptRefresh(selectedScene)
   const approvalResult = approveAll.variables === selectedSceneId ? approveAll.data : undefined
   const approvingScene = scenes.find(scene => scene._id === approveAll.variables)
   const unreviewedTotal = shots.reduce((count, sh) => count + sh.dialogue.filter(d => !d.reviewed).length, 0)
@@ -231,7 +244,7 @@ export function ShotsStep({ episodeId, initialSceneId }: Props) {
             {selectedScene?.dramaBeat?.dialoguePurpose && (
               <p className="text-xs text-gray-600">
                 บทพูด · {selectedScene.dramaBeat.dialoguePurpose}
-                {selectedScene.dramaBeat.dialogueBudgetSec ? ` · เวลาพูดไม่เกิน ${selectedScene.dramaBeat.dialogueBudgetSec} วินาที` : ''}
+                {selectedScene.dramaBeat.dialogueBudgetSec ? ` · เวลาพูดประมาณ ${selectedScene.dramaBeat.dialogueBudgetSec} วินาที` : ''}
               </p>
             )}
           </div>
@@ -270,8 +283,8 @@ export function ShotsStep({ episodeId, initialSceneId }: Props) {
         {runS3.isError && <p role="alert" className="text-sm text-red-700">เริ่มงานไม่สำเร็จ กรุณาลองอีกครั้ง</p>}
 
         {genScene.isPending && <AiLoadingBanner job={null} pending label="AI กำลังสร้างช็อตของซีนนี้" />}
-        {approveAll.isPending && approvingScene && needsDramaVideoPrompt(approvingScene) && (
-          <AiLoadingBanner job={null} pending label={`กำลังสร้าง Video Prompt ของ ${approvingScene.sceneCode}`} />
+        {approveAll.isPending && approvingScene && needsDramaVideoPromptRefresh(approvingScene) && (
+          <AiLoadingBanner job={null} pending label={`กำลังอัปเดต Video Prompt ของ ${approvingScene.sceneCode}`} />
         )}
         {(genScene.isError || approveAll.isError) && (
           <p role="alert" className="text-sm text-red-700">
@@ -282,7 +295,7 @@ export function ShotsStep({ episodeId, initialSceneId }: Props) {
           <div className="text-gray-500 text-sm bg-gray-50 rounded p-4">เลือกฉากจากรายการซ้ายมือ</div>
         )}
         {selectedSceneId && loadingShots && <div className="text-gray-400">กำลังโหลด…</div>}
-        {approvalResult?.promptStatus === 'updated' && selectedScene?.shotsApproved && !needsPrompt && (
+        {approvalResult?.promptStatus === 'updated' && selectedScene?.shotsApproved && !needsPromptRefresh && (
           <p role="status" className="text-sm text-green-700">อัปเดต Video Prompt ของซีนนี้ในขั้น 7 แล้ว</p>
         )}
         {approvalResult?.promptStatus === 'failed' && (
@@ -292,10 +305,10 @@ export function ShotsStep({ episodeId, initialSceneId }: Props) {
         {shots.length > 0 && (
           <div className="flex flex-wrap items-center gap-3">
             <button onClick={() => selectedSceneId && approveAll.mutate(selectedSceneId)}
-              disabled={busy || !selectedSceneId || (!!selectedScene?.shotsApproved && !needsPrompt)}
+              disabled={busy || !selectedSceneId || (!!selectedScene?.shotsApproved && !needsPromptRefresh)}
               className="text-sm px-3 py-1.5 rounded bg-green-700 text-white disabled:opacity-50">
               {approveAll.isPending && approveAll.variables === selectedSceneId ? 'กำลังบันทึก…'
-                : selectedScene?.shotsApproved ? (needsPrompt ? 'สร้าง Video Prompt อีกครั้ง' : '✓ อนุมัติซีนแล้ว')
+                : selectedScene?.shotsApproved ? (needsPromptRefresh ? 'อัปเดต Video Prompt อีกครั้ง' : '✓ อนุมัติซีนแล้ว')
                   : 'อนุมัติ All ของซีน'}
             </button>
             {unreviewedTotal > 0 && (

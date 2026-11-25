@@ -1,14 +1,19 @@
 import { shotTimeline } from "../utils/shortDrama.js";
-import type { DramaCameraAngle } from "../utils/dramaCamera.js";
+import { cameraSetupDirection, type CameraSetup, type DramaCameraAngle } from "../utils/dramaCamera.js";
+import type { VideoReferenceSlot } from "../utils/videoClipInputs.js";
+import { clipOpeningContinuity } from "./clipOpening.js";
 
-type Reference = {
-  name: string;
-  role: "character" | "location";
-  description: string;
-  resourceKey?: string;
+type Reference = Omit<VideoReferenceSlot, "index"> & { description: string };
+type Dialogue = { subject: number; text: string; language: string; delivery: string; actionDuringSpeech?: string };
+type DirectedShot = {
+  durationSec: number;
+  cameraAngle?: DramaCameraAngle;
+  cameraSetup?: CameraSetup;
+  direction: string;
+  portraitFraming?: string;
+  propSubjects?: number[];
+  dialogue: Dialogue[];
 };
-type Dialogue = { subject: number; text: string; language: string; delivery: string };
-type DirectedShot = { durationSec: number; cameraAngle?: DramaCameraAngle; direction: string; dialogue: Dialogue[] };
 
 function timecode(seconds: number) {
   return `00:${seconds.toFixed(3).padStart(6, "0")}`;
@@ -18,6 +23,7 @@ export function assembleShortDramaH3(input: {
   overview: string;
   references: Reference[];
   blocking: string;
+  openingBlocking?: string;
   soundAndEditing: string;
   shots: DirectedShot[];
   aspectRatio?: string;
@@ -45,9 +51,19 @@ export function assembleShortDramaH3(input: {
   const durationSec = timeRange.at(-1)!.end;
 
   const shots = input.shots.map((shot, i) => [
-    `[Shot ${i + 1}] ${timecode(timeRange[i].start)}–${timecode(timeRange[i].end)}. ${shot.cameraAngle ? `Camera angle: ${shot.cameraAngle}. ` : ""}${shot.direction}`,
-    ...shot.dialogue.map(({ subject, text, language, delivery }) =>
-      `<Subject ${subject}> (S${speakers.get(subject)}) says${delivery ? ` ${delivery}` : ""}: <d>[${language}] ${text}</d>`),
+    [
+      `[Shot ${i + 1}] ${timecode(timeRange[i].start)}–${timecode(timeRange[i].end)}.`,
+      shot.cameraAngle ? `Camera angle: ${shot.cameraAngle}.` : "",
+      shot.cameraSetup ? cameraSetupDirection(shot.cameraSetup) : "",
+      shot.direction,
+    ].filter(Boolean).join(" "),
+    ...(i === 0 && input.openingBlocking !== undefined ? [clipOpeningContinuity(input.openingBlocking)] : []),
+    ...(shot.portraitFraming ? [`Portrait framing: ${shot.portraitFraming}`] : []),
+    ...(shot.propSubjects?.length ? [`Match the props shown in this shot to ${shot.propSubjects.map(subject => `<Subject ${subject}>`).join(", ")}.`] : []),
+    ...shot.dialogue.flatMap(({ subject, text, language, delivery, actionDuringSpeech }) => [
+      ...(actionDuringSpeech ? [`Action during the next line: ${actionDuringSpeech}`] : []),
+      `<Subject ${subject}> (S${speakers.get(subject)}) says${delivery ? ` ${delivery}` : ""}: <d>[${language}] ${text}</d>`,
+    ]),
   ].join("\n"));
 
   const cleanSoundAndEditing = input.soundAndEditing
@@ -62,7 +78,7 @@ export function assembleShortDramaH3(input: {
       "SPEAKER LOCK",
       ...speakerLines,
       silent.length ? `Shots ${silent.join(", ")} are silent. Keep lips closed.` : "",
-      speakers.size ? "Speak only the tagged dialogue verbatim in its specified language. Keep all production directions unspoken. Cut to each assigned speaker before the first word and stay on that face until the line ends. Preserve distinct voices and natural lip sync. No narration or overlapping voices." : "",
+      speakers.size ? "Speak only the tagged dialogue verbatim in the listed order and language. Keep all production directions unspoken. Play actions marked during a line simultaneously with that line, and let replies follow on a natural breath. Keep speakers visible as they move and speak. When turns share a shot, stay in the same take and follow the planned camera movement. Carry action and conversation across the planned cuts. Preserve distinct voices and natural lip sync. No narration or overlapping voices." : "",
     ].filter(Boolean).join("\n"),
     ...shots,
     `BACKGROUND ACTIVITY, SOUND AND EDITING\n${cleanSoundAndEditing}\nKeep background movement and sound below the main action. No non-diegetic music or BGM — retain only diegetic sound effects and environmental audio. No extra dialogue, captions, fade or cut to black. End at ${timecode(durationSec)}.`,
