@@ -1,9 +1,9 @@
 import { useIsMutating, useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useRef, useState } from 'react'
-import { bgmApi, dialogueApi, elevenLabsApi, episodeBgmApi, optimizeApi, promptsApi, projectsApi, scenesApi, shotApprovalKey } from '../../lib/api'
+import { bgmApi, elevenLabsApi, episodeBgmApi, promptsApi, projectsApi, scenesApi, shotApprovalKey } from '../../lib/api'
 import { useAppSettings } from '../../hooks/useAppSettings'
 import { ReferenceSlots } from '../../components/ReferenceSlots'
-import type { Clip, ElevenLabsLine, ElevenLabsSpeaker, ElevenLabsVoice, EpisodeBgmAnalysis, MusicCue, OptimizeResult, Scene } from '../../lib/api'
+import type { Clip, ElevenLabsLine, ElevenLabsSpeaker, MusicCue, Scene } from '../../lib/api'
 import type { EpisodeImageResources } from '../images/useImageResources'
 import { referenceUpdateKey } from '../images/updateReferencePrompt'
 import { RunningHubConnection, RunningHubSetup } from './RunningHubSetup'
@@ -168,7 +168,7 @@ function SceneVideoPanel({ scene, projectId, resources, settings, generationCoun
   )
 }
 
-// ---- Tab 2: H3 Optimizer ----
+// ---- Expandable prompt section ----
 
 function Section({ title, content, mono = false, badge, filename }: {
   title: string; content: string; mono?: boolean; badge?: string; filename?: string
@@ -194,149 +194,6 @@ function Section({ title, content, mono = false, badge, filename }: {
           <pre className={`text-xs whitespace-pre-wrap leading-relaxed overflow-x-auto max-h-[500px] ${mono ? 'font-mono' : 'font-sans'}`}>
             {content}
           </pre>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ResultSections({ result, sceneCode, clips, projectId, scene, resources, settings, visible, onSetup, onImages, projectRatio }: {
-  result: OptimizeResult; sceneCode: string
-  clips: Clip[]; projectId: string; scene: Scene; resources: EpisodeImageResources
-  settings?: RunningHubSettings; visible: boolean; projectRatio?: string
-  onSetup: () => void; onImages: () => void
-}) {
-  const parseFailed = !result.analysisReport && result.optimizedClips.every(c => !c)
-  if (parseFailed) {
-    return (
-      <div className="space-y-2">
-        <div className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded p-2">
-          parse sections ไม่สำเร็จ — แสดง raw output ทั้งหมด
-        </div>
-        <Section title="Raw LLM Output" content={result.raw} mono filename={`${sceneCode}-RAW.md`} />
-      </div>
-    )
-  }
-  return (
-    <div className="space-y-2">
-      <Section title="Prompt Analysis Report" content={result.analysisReport} filename={`${sceneCode}-ANALYSIS.md`} />
-      <Section title="Subject & Picture Mapping" content={result.mappingTable} filename={`${sceneCode}-MAPPING.md`} />
-      <Section title="Dialogue Timing Calibration" content={result.timingReport} filename={`${sceneCode}-TIMING.md`} />
-      {result.optimizedClips.map((clipText, i) => {
-        const clip = clips[i]
-        const optimizedClip = clip && clipText ? { ...clip, videoPrompt: clipText } : clip
-        return (
-          <div key={i} className="space-y-1">
-            <Section
-              title={`Optimized H3 Prompt — Clip ${i + 1}/${result.optimizedClips.length}`}
-              content={clipText}
-              mono
-              badge={`Clip ${i + 1}`}
-              filename={`${sceneCode}-C${String(i + 1).padStart(2, '0')}.md`}
-            />
-            {optimizedClip && (
-              <div className="rounded-lg border bg-white px-3 py-2 space-y-2">
-                <ReferenceSlots slots={optimizedClip.referenceSlots} />
-                {optimizedClip.promptRevision && (
-                  <p className="whitespace-pre-wrap break-words rounded bg-violet-50 px-3 py-2 text-xs text-violet-900">
-                    <span className="font-semibold">คอมเมนต์ล่าสุด</span>{' '}{optimizedClip.promptRevision.comment}
-                  </p>
-                )}
-                <RunningHubClip scene={scene} clip={optimizedClip} projectId={projectId} resources={resources}
-                  settings={settings} visible={visible} onSetup={onSetup} onImages={onImages} projectRatio={projectRatio} isOptimized />
-              </div>
-            )}
-          </div>
-        )
-      })}
-      {result.elevenLabsScript && (
-        <Section title="ElevenLabs Dialogue Script" content={result.elevenLabsScript} mono filename={`${sceneCode}-ELEVENLABS.md`} />
-      )}
-      <Section title="BGM Spec (แยกต่างหาก)" content={result.bgmSpec} filename={`${sceneCode}-BGM.md`} />
-      <Section title="Validation Report" content={result.validationReport} filename={`${sceneCode}-VALIDATION.md`} />
-    </div>
-  )
-}
-
-function OptimizedPanel({ scene, maxClipSec, imageRefFormat, projectId, resources, settings, generationCount, visible, onSetup, onImages, projectRatio }: {
-  scene: Scene; maxClipSec: number | null; imageRefFormat: '@Image' | '<Picture>'
-  projectId: string; resources: EpisodeImageResources; settings?: RunningHubSettings
-  generationCount?: number; visible: boolean; projectRatio?: string
-  onSetup: () => void; onImages: () => void
-}) {
-  const qc = useQueryClient()
-  const [open, setOpen] = useState(false)
-  const sceneCode = (scene as any).sceneCode ?? scene._id
-
-  // โหลด clips จริงเพื่อใช้กับ RunningHubClip
-  const { data: sceneDetail } = useQuery({
-    queryKey: ['scene-clips', scene._id],
-    queryFn: () => promptsApi.getClips(scene._id),
-    enabled: open,
-  })
-  const clips: Clip[] = (sceneDetail?.clips ?? scene.clips ?? []).filter((c: Clip) => !c.stale)
-
-  const { data: cached } = useQuery({
-    queryKey: ['optimized', scene._id],
-    queryFn: () => optimizeApi.getScene(scene._id),
-    enabled: open,
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnMount: 'always',
-  })
-
-  const optimize = useMutation({
-    mutationFn: () => optimizeApi.optimizeScene(scene._id, maxClipSec ?? undefined, imageRefFormat),
-    onSuccess: (data) => { qc.setQueryData(['optimized', scene._id], data) },
-  })
-
-  const result: OptimizeResult | null = optimize.data ?? cached ?? null
-  const hasClips = clips.length > 0 || (scene as any).shotCount > 0
-
-  return (
-    <div className="border rounded-lg overflow-hidden">
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex justify-between items-center px-4 py-3 bg-white hover:bg-gray-50 text-left">
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-xs text-gray-400">{sceneCode}</span>
-          <span className="font-medium">{scene.title}</span>
-          <span className="text-xs text-gray-400">{scene.estDurationSec}s</span>
-          {result && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">✔ optimized</span>}
-          {!hasClips && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">⚠ ยังไม่มี clips</span>}
-          {generationCount !== undefined && generationCount > 0 && (
-            <span className="whitespace-nowrap rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-800">Gen {generationCount} ครั้ง</span>
-          )}
-        </div>
-        <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
-      </button>
-      {open && (
-        <div className="border-t bg-gray-50 px-4 pb-4 pt-3 space-y-3">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => optimize.mutate()}
-              disabled={optimize.isPending || !hasClips}
-              className="text-sm px-3 py-1.5 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-40 flex items-center gap-1.5"
-            >
-              {optimize.isPending && (
-                <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                </svg>
-              )}
-              {optimize.isPending ? 'กำลัง optimize…' : result ? '↻ Optimize ใหม่' : 'Optimize H3 Prompt'}
-            </button>
-            {optimize.isError && (
-              <span className="text-xs text-red-600">
-                ✖ {String((optimize.error as any)?.response?.data?.error ?? optimize.error)}
-              </span>
-            )}
-          </div>
-          {result && (
-            <ResultSections result={result} sceneCode={sceneCode}
-              clips={clips} projectId={projectId} scene={scene} resources={resources}
-              settings={settings} visible={visible && open} onSetup={onSetup} onImages={onImages} projectRatio={projectRatio}
-            />
-          )}
         </div>
       )}
     </div>
@@ -518,7 +375,7 @@ function SpeakerBlock({ speaker, lines, sceneId }: {
   }).join('\n')
 
   const genLine = useMutation({
-    mutationFn: (line: ElevenLabsLine) =>
+    mutationFn: () =>
       elevenLabsApi.generateAudio(sceneId, { stability: 0.5, similarityBoost: 0.75, style: 0.3 }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['el-lines', sceneId] }),
   })
@@ -563,7 +420,7 @@ function SpeakerBlock({ speaker, lines, sceneId }: {
               {result
                 ? <audio controls src={result.filePath} className="h-6 w-32 shrink-0" />
                 : speaker.voiceId && (
-                  <button type="button" onClick={() => genLine.mutate(line)} disabled={genLine.isPending}
+                  <button type="button" onClick={() => genLine.mutate()} disabled={genLine.isPending}
                     className="shrink-0 text-xs rounded bg-violet-600 text-white px-2 py-0.5 hover:bg-violet-700 disabled:opacity-40">
                     {genLine.isPending ? '…' : '▶'}
                   </button>
@@ -587,7 +444,6 @@ function SpeakerBlock({ speaker, lines, sceneId }: {
 }
 
 function DialoguePanel({ scene }: { scene: Scene }) {
-  const qc = useQueryClient()
   const linesKey = ['el-lines', scene._id]
 
   const linesQuery = useQuery({
@@ -789,9 +645,6 @@ function AutoGenQueue({ scenes, projectId, resources, settings, episodeId }: {
 export function VideoPromptsStep({ episodeId, projectId, resources, visible, onImages }: Props) {
   const [tab, setTab] = useState<'dy' | 'bgm' | 'dialogue'>('dy')
   const [showSetup, setShowSetup] = useState(false)
-  const [maxClipSec, setMaxClipSec] = useState<string>('')
-  const [imageRefFormat, setImageRefFormat] = useState<'@Image' | '<Picture>'>('@Image')
-  const qc = useQueryClient()
 
   const updatingRef = useIsMutating({ mutationKey: referenceUpdateKey(projectId) }) > 0
   const revisingPrompt = useIsMutating({ mutationKey: ['video-prompt-revision', episodeId] }) > 0
@@ -832,19 +685,6 @@ export function VideoPromptsStep({ episodeId, projectId, resources, visible, onI
     },
   })
   const savedSubtitles = subtitles.data?.workspaceId === resources.workspaceId ? subtitles.data : undefined
-
-  const optimizeAll = useMutation({
-    mutationFn: async () => {
-      const sec = maxClipSec ? Number(maxClipSec) : undefined
-      for (const sc of scenes) {
-        if ((sc as any).clips?.length > 0 || (sc as any).shotCount > 0) {
-          await optimizeApi.optimizeScene(sc._id, sec, imageRefFormat)
-          qc.invalidateQueries({ queryKey: ['optimized', sc._id] })
-        }
-      }
-    },
-  })
-  const scenesWithClips = scenes.filter(sc => (sc as any).clips?.length > 0)
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-4">

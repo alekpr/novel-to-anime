@@ -168,7 +168,6 @@ export function RunningHubClip(
   const videoJobId = currentVideo?.id ?? previousVideo?.sourceJobId
   const videoCount = currentVideo?.videos.length ?? previousVideo?.sourceVideoCount ?? 0
   const slots = imageSlots(clip, resources)
-  const audios = audioSlots(clip, resources)
   const audioStatus = audioRefStatus(clip, resources)
   const updatingKeys = useMutationState({
     filters: { mutationKey: referenceUpdateKey(projectId), status: 'pending' },

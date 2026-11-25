@@ -16,7 +16,10 @@ fi
 [ -d node_modules ] || npm ci
 
 # 3) build ถ้ายังไม่ได้ทำ
-[ -d dist ] || npm run build
+if [ ! -f dist/server.js ] || [ ! -f web/dist/index.html ]; then
+  [ -d web/node_modules ] || npm ci --prefix web
+  npm run build
+fi
 
 # 4) เปิดเบราว์เซอร์แล้วรันเซิร์ฟเวอร์
 ( sleep 2; open "http://localhost:3000" ) &
