@@ -40,6 +40,9 @@ export type DYAssembleInput = {
   dialogueLanguage: string;
   clipPolicy: { maxClipSec: number; targetClipSec: number; minClipSec: number };
   promptPrefix?: string;
+  artStyle?: string;
+  aspectRatio?: string;
+  negativePrompt?: string;
 };
 
 export type DYAssembleResult = {
@@ -51,7 +54,8 @@ export type DYAssembleResult = {
 
 export function assembleDY(input: DYAssembleInput): DYAssembleResult {
   const { draft, locationBlock, locationName, characters, props,
-    referencePictures, dialogueLanguage, clipPolicy, promptPrefix = "DY" } = input;
+    referencePictures, dialogueLanguage, clipPolicy, promptPrefix = "DY",
+    artStyle = "photorealistic live-action", aspectRatio, negativePrompt } = input;
 
   // แปลง shots เป็น ShotForSplit
   const shotsForSplit: ShotForSplit[] = draft.shots.map((sh, i) => ({
@@ -132,7 +136,7 @@ export function assembleDY(input: DYAssembleInput): DYAssembleResult {
       subjects,
       referencePictures,
       dialogueLanguage,
-    }, draft, locationName, promptPrefix);
+    }, draft, locationName, promptPrefix, artStyle, aspectRatio, negativePrompt);
 
     clips.push({
       durationSec: clipDuration,
@@ -150,7 +154,10 @@ function buildDYPrompt(
   ctx: ClipContext,
   draft: SceneVideoPromptDraftType,
   locationName: string,
-  prefix: string
+  prefix: string,
+  artStyle = "photorealistic live-action",
+  aspectRatio?: string,
+  negativePrompt?: string
 ): string {
   const lines: string[] = [];
 
@@ -174,7 +181,11 @@ function buildDYPrompt(
   const picDescs = ctx.referencePictures.map((p) => `<Picture ${p.index}> provides ${p.description}`).join("; ");
   const contNote = ctx.clipIndex > 0 ? ` This clip continues directly from clip ${ctx.clipIndex}.` : "";
   lines.push(`\nsummary:`);
-  lines.push(`[reference generation] The target is a ${ctx.durationSec}-second ${draft.visualTone} ${draft.sceneType} in photorealistic live-action style. ${picDescs}.${contNote} The scene progresses through ${ctx.shots.length} connected shots, with all dialogue performed naturally in ${ctx.dialogueLanguage}.`);
+  lines.push(`[reference generation] The target is a ${ctx.durationSec}-second ${draft.visualTone} ${draft.sceneType} in ${artStyle} style.${aspectRatio ? ` Aspect ratio: ${aspectRatio}.` : ""} ${picDescs}.${contNote} The scene progresses through ${ctx.shots.length} connected shots, with all dialogue performed naturally in ${ctx.dialogueLanguage}.`);
+  if (negativePrompt) {
+    lines.push(`\nnegative_prompt:`);
+    lines.push(negativePrompt);
+  }
 
   // retention_analysis
   lines.push(`\nretention_analysis:`);
@@ -213,10 +224,12 @@ function buildDYPrompt(
   }
 
   // soundscape + music
+  // strip any music/instrument references LLM snuck into soundscape
+  const cleanSoundscape = draft.soundscape
+    .replace(/[^.!?]*(?:flute|strings?|piano|violin|cello|harp|drum|percussion|trumpet|horn|guitar|melody|motif|musical?|non[- ]?diegetic|bgm|background music|score|soundtrack|orchestr\w*|instrument\w*)[^.!?]*[.!?]?/gi, '')
+    .replace(/\s{2,}/g, ' ').trim();
   lines.push(`\noverall_soundscape:`);
-  lines.push(`${draft.soundscape} No subtitles or visible text.`);
-  lines.push(`\nnon_diegetic_music:`);
-  lines.push(draft.music);
+  lines.push(`No non-diegetic music or BGM. Retain only diegetic sound effects and environmental audio (room tone, foley, ambient atmosphere). ${cleanSoundscape ? cleanSoundscape.replace(/[^.!?]$/, '$&.') + ' ' : ''}No subtitles or visible text.`);
 
   return lines.join("\n");
 }

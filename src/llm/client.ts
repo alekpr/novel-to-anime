@@ -303,6 +303,7 @@ export async function callStructured<T extends z.ZodTypeAny>(
       return { data, tokens: { in: totalIn, out: totalOut } };
     } catch (e: unknown) {
       lastError = String(e instanceof Error ? e.message : e).slice(0, 500);
+      console.warn(`[callStructured] attempt=${i} validation error:`, lastError);
     }
   }
 

@@ -3,6 +3,15 @@ import type { DramaCameraAngle } from '../../../src/utils/dramaCamera'
 
 const api = axios.create({ baseURL: '/api' })
 
+api.interceptors.response.use(
+  r => r,
+  err => {
+    const msg = err?.response?.data?.error
+    if (msg) err.message = msg
+    return Promise.reject(err)
+  }
+)
+
 export interface Project {
   _id: string
   title: string
@@ -11,6 +20,12 @@ export interface Project {
   createdAt: string
   deletionPending?: boolean
   storySource?: { mode: 'story' | 'outline'; episodeCount: number }
+  styleGuide?: {
+    artStyle?: string
+    aspectRatio?: string
+    promptPrefix?: string
+    negativePrompt?: string
+  }
 }
 
 export type CreateProjectInput = {
@@ -45,7 +60,11 @@ export interface Character {
   referenceWardrobe?: string
   characterSheetPrompt?: string
   outfits?: { name: string; description: string; referenceAppearance?: string; outfitPrompt?: string; outfitSheetPrompt?: string; usedInScenes?: string[] }[]
-  voice?: { gender?: string; pitch?: string; voicePrompt?: string }
+  voice?: {
+    gender?: string; pitch?: string; defaultEmotion?: string; speechHabits?: string[]; sampleLines?: string[]
+    voicePrompt?: string; audioLines?: { tag: string; line: string }[]; audioReference?: string
+    elevenLabsVoiceId?: string
+  }
 }
 
 export interface PropObject {
@@ -157,6 +176,8 @@ export const projectsApi = {
   list: () => api.get<Project[]>('/projects').then(r => r.data),
   create: (data: CreateProjectInput) => api.post<Project>('/projects', data).then(r => r.data),
   rename: (id: string, title: string) => api.patch<Project>(`/projects/${id}`, { title }).then(r => r.data),
+  updateSettings: (id: string, styleGuide: NonNullable<Project['styleGuide']>) =>
+    api.patch<Project>(`/projects/${id}`, { styleGuide }).then(r => r.data),
   delete: (id: string) => api.delete<{ deleted: true }>(`/projects/${id}`, { data: { confirm: true } }).then(r => r.data),
 }
 
@@ -179,7 +200,13 @@ export const charactersApi = {
   generateOutfitPrompts: (id: string) => api.post<{ updated: number; character: Character }>(`/characters/${id}/generate-outfit-prompts`).then(r => r.data),
   regenerateAppearance: (id: string) => api.post<Character>(`/characters/${id}/regenerate-appearance`).then(r => r.data),
   resetAppearance: (id: string) => api.post<Character>(`/characters/${id}/reset-appearance`).then(r => r.data),
+  regenerateVoicePrompt: (id: string) => api.post<Character>(`/characters/${id}/regenerate-voice-prompt`).then(r => r.data),
   fixUnknown: (id: string) => api.post<Character>(`/characters/${id}/fix-unknown`).then(r => r.data),
+  uploadAudio: (id: string, file: File) => {
+    const form = new FormData(); form.append('audio', file)
+    return api.post<{ audioReference: string }>(`/characters/${id}/audio-reference`, form).then(r => r.data)
+  },
+  deleteAudio: (id: string) => api.delete(`/characters/${id}/audio-reference`).then(r => r.data),
 }
 
 // Factions
@@ -271,6 +298,81 @@ export const optimizeApi = {
     api.post<OptimizeResult>(`/scenes/${sceneId}/optimize`, { maxClipSec, imageRefFormat }).then(r => r.data),
   getEpisode: (episodeId: string) =>
     api.get<Array<{ _id: string; sceneCode: string; title: string; hasOptimized: boolean; clipCount: number; optimizedClips: OptimizeResult | null }>>(`/episodes/${episodeId}/optimized`).then(r => r.data),
+}
+
+// BGM
+export const bgmApi = {
+  get: (sceneId: string) => api.get<{ bgmPrompt: string | null }>(`/scenes/${sceneId}/bgm`).then(r => r.data.bgmPrompt),
+  generate: (sceneId: string) => api.post<{ bgmPrompt: string }>(`/scenes/${sceneId}/generate-bgm`).then(r => r.data.bgmPrompt),
+}
+
+export interface MusicCue {
+  cueNumber: number
+  title: string
+  scenes: string[]
+  startSec: number
+  endSec: number
+  durationSec: number
+  emotionalArc: string
+  instrumentation: string
+  tempo: string
+  dynamics: string
+  rationale: string
+  prompt: string
+  audioUrl?: string
+}
+export interface EpisodeBgmAnalysis {
+  overallArc: string
+  cues: MusicCue[]
+}
+export const episodeBgmApi = {
+  get: (episodeId: string) => api.get<{ analysis: EpisodeBgmAnalysis | null }>(`/episodes/${episodeId}/bgm-analysis`).then(r => r.data.analysis),
+  analyze: (episodeId: string) => api.post<{ analysis: EpisodeBgmAnalysis }>(`/episodes/${episodeId}/analyze-bgm`).then(r => r.data.analysis),
+  generateCue: (episodeId: string, cueNumber: number, prompt: string, durationSec: number) =>
+    api.post<{ url: string; requestedDurationSec: number; actualDurationSec: number }>(
+      `/episodes/${episodeId}/generate-lyria-cue`, { cueNumber, prompt, durationSec }
+    ).then(r => r.data),
+}
+
+// Dialogue Script
+export const dialogueApi = {
+  get: (sceneId: string) => api.get<{ dialogueScript: string | null }>(`/scenes/${sceneId}/dialogue-script`).then(r => r.data.dialogueScript),
+  generate: (sceneId: string) => api.post<{ dialogueScript: string }>(`/scenes/${sceneId}/generate-dialogue-script`).then(r => r.data.dialogueScript),
+}
+
+// ElevenLabs
+export interface ElevenLabsVoice {
+  voiceId: string
+  name: string
+  category?: string
+  previewUrl?: string
+  labels?: Record<string, string>
+}
+export interface ElevenLabsLine {
+  shotNum: number
+  startSec: number
+  endSec: number
+  speakerName: string
+  speakerId: string
+  voiceId: string
+  text: string
+  tone?: string
+  availableTags: string[]
+}
+export interface ElevenLabsSpeaker {
+  name: string
+  voiceId: string | null
+  availableTags: string[]
+}
+export const elevenLabsApi = {
+  listVoices: () => api.get<{ voices: ElevenLabsVoice[] }>('/elevenlabs/voices').then(r => r.data.voices),
+  setVoice: (charId: string, voiceId: string) =>
+    api.post<Character>(`/characters/${charId}/set-elevenlabs-voice`, { voiceId }).then(r => r.data),
+  getLines: (sceneId: string) =>
+    api.get<{ lines: ElevenLabsLine[]; speakers: ElevenLabsSpeaker[] }>(`/scenes/${sceneId}/elevenlabs-lines`).then(r => r.data),
+  generateAudio: (sceneId: string, opts?: { stability?: number; similarityBoost?: number; style?: number }) =>
+    api.post<{ results: { speakerName: string; shotNum: number; text: string; filePath: string }[] }>(
+      `/scenes/${sceneId}/generate-elevenlabs-audio`, opts ?? {}).then(r => r.data.results),
 }
 
 export default api

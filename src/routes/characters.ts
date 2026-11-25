@@ -1,8 +1,16 @@
 import { FastifyInstance } from "fastify";
+import { createReadStream } from "node:fs";
+import { mkdir, rename, rm, stat, unlink } from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
+import { config } from "../config/index.js";
 import { callStructured } from "../llm/client.js";
 import { Character } from "../models/Character.js";
 import { Project } from "../models/Project.js";
+import { supportedReferenceAudio, MAX_REFERENCE_AUDIO_BYTES } from "../utils/videoClipInputs.js";
+
+const audioDir = (charId: string) => path.join(config.dataDir, "assets", "audio-ref", charId);
+const audioPath = (charId: string, ext: string) => path.join(audioDir(charId), `ref.${ext}`);
 
 type Faction = { name: string; description: string; costumeDescription: string; costumePrompt: string };
 
@@ -45,6 +53,8 @@ function buildCharacterContext(char: any, factions: Faction[]) {
 }
 
 export async function characterRoutes(app: FastifyInstance) {
+  app.addContentTypeParser(/^multipart\/form-data\b/i, { parseAs: "buffer", bodyLimit: MAX_REFERENCE_AUDIO_BYTES + 1_000 }, (_req, body, done) => done(null, body));
+
   app.get("/projects/:id/characters", async (req) => {
     const { id } = req.params as { id: string };
     return Character.find({ projectId: id }).sort({ name: 1 });
@@ -176,6 +186,70 @@ Return JSON: { "outfits": [{ "name": "outfit name", "outfitPrompt": "...", "outf
     return updated;
   });
 
+  // Audio Reference — upload, serve, delete
+  app.post("/characters/:id/audio-reference", {
+    bodyLimit: MAX_REFERENCE_AUDIO_BYTES + 1_000,
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const char = await Character.findById(id);
+    if (!char) return reply.code(404).send({ error: "Not found" });
+    if (!Buffer.isBuffer(req.body)) return reply.code(400).send({ error: "กรุณาแนบไฟล์เสียง" });
+    let form: FormData;
+    try {
+      form = await new Response(new Uint8Array(req.body as Buffer), { headers: { "Content-Type": req.headers["content-type"] ?? "" } }).formData();
+    } catch {
+      return reply.code(400).send({ error: "อ่านไฟล์เสียงไม่สำเร็จ" });
+    }
+    const file = form.get("audio");
+    if (!file || typeof file === "string") return reply.code(400).send({ error: "กรุณาแนบไฟล์เสียงในฟิลด์ audio" });
+    if (!supportedReferenceAudio(file.name, file.size)) return reply.code(422).send({ error: "ใช้ไฟล์ MP3, WAV, M4A, AAC, OGG หรือ FLAC ขนาดไม่เกิน 20 MB" });
+    const ext = file.name.split(".").pop()!.toLowerCase();
+    const dest = audioPath(id, ext);
+    const partial = dest + ".partial";
+    try {
+      await mkdir(audioDir(id), { recursive: true });
+      // ลบไฟล์เก่าทุก ext ก่อน
+      for (const e of ["mp3","wav","m4a","aac","ogg","flac"]) {
+        await unlink(audioPath(id, e)).catch(() => {});
+      }
+      const buf = Buffer.from(await file.arrayBuffer());
+      const { writeFile } = await import("node:fs/promises");
+      await writeFile(partial, buf);
+      await rename(partial, dest);
+    } catch {
+      await rm(partial, { force: true }).catch(() => {});
+      return reply.code(500).send({ error: "บันทึกไฟล์เสียงไม่สำเร็จ" });
+    }
+    const ref = `audio-ref/${id}/ref.${ext}`;
+    await Character.findByIdAndUpdate(id, { $set: { "voice.audioReference": ref } });
+    return { audioReference: ref };
+  });
+
+  app.get("/characters/:id/audio-reference", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const char = await Character.findById(id).select("voice").lean() as any;
+    if (!char?.voice?.audioReference) return reply.code(404).send({ error: "ไม่พบไฟล์เสียงอ้างอิง" });
+    const file = path.join(config.dataDir, "assets", char.voice.audioReference);
+    try {
+      const { size } = await stat(file);
+      const ext = path.extname(file).slice(1).toLowerCase();
+      const mime: Record<string, string> = { mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4", aac: "audio/aac", ogg: "audio/ogg", flac: "audio/flac" };
+      return reply.header("Content-Type", mime[ext] ?? "audio/mpeg").header("Content-Length", size).send(createReadStream(file));
+    } catch {
+      return reply.code(404).send({ error: "ไม่พบไฟล์เสียงอ้างอิง" });
+    }
+  });
+
+  app.delete("/characters/:id/audio-reference", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const char = await Character.findById(id).select("voice").lean() as any;
+    if (!char?.voice?.audioReference) return reply.code(404).send({ error: "ไม่พบไฟล์เสียงอ้างอิง" });
+    const file = path.join(config.dataDir, "assets", char.voice.audioReference);
+    await rm(file, { force: true }).catch(() => {});
+    await Character.findByIdAndUpdate(id, { $unset: { "voice.audioReference": "" } });
+    return { deleted: true };
+  });
+
   // Regenerate (ระบุ field ที่ต้องการ — ตอนนี้ reset เป็น draft ให้ S1 รันใหม่)
   app.post("/characters/:id/regenerate", async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -266,6 +340,50 @@ Return JSON: { "appearance": { "hair": "...", "skin": "...", "eyes": "...", "bui
     const updated = await Character.findByIdAndUpdate(id, {
       $set: updateSet, $unset: { referenceWardrobe: "" },
     }, { new: true });
+    return updated;
+  });
+
+  app.post("/characters/:id/regenerate-voice-prompt", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const char = await Character.findById(id).lean() as any;
+    if (!char) return reply.code(404).send({ error: "Not found" });
+
+    const sampleLines: string[] = char.voice?.sampleLines ?? [];
+    const speechHabits: string[] = char.voice?.speechHabits ?? [];
+    const defaultEmotion: string = char.voice?.defaultEmotion || "neutral";
+
+    const VoiceResult = z.object({
+      voicePrompt: z.string(),
+      audioLines: z.array(z.object({ tag: z.string(), line: z.string() })).min(3).max(5),
+    });
+
+    const { data } = await callStructured({
+      system: "You are a Thai voice actor director. Generate character dialogue lines with emotion tags for TTS systems like ElevenLabs or Fish Audio.",
+      user: `Character: ${char.name} (${char.role})
+Personality: ${char.personality || "unspecified"}
+Age: ${char.age || "unspecified"}
+Default emotion: ${defaultEmotion}
+Speech habits: ${speechHabits.join(", ") || "none"}
+Existing sample lines: ${sampleLines.join(" / ") || "none"}
+
+Generate:
+1. voicePrompt — one short Thai sentence describing this character's voice style (e.g. "เสียงหนักแน่น พูดช้า สำเนียงสุภาพ")
+2. audioLines — 3-5 dialogue lines IN THAI that this character would naturally say, each with an emotion tag
+   - tag: one of [neutral] [happy] [sad] [angry] [calm] [excited] [fearful] [serious] [gentle] [cold]
+   - line: a natural Thai sentence ≤ 15 seconds when spoken aloud
+   - Vary the emotions to showcase the character's range
+   - Use speech habits if any
+
+Return JSON: { "voicePrompt": "...", "audioLines": [{ "tag": "[calm]", "line": "..." }, ...] }`,
+      schema: VoiceResult,
+      temperature: 0.7,
+    });
+
+    const updated = await Character.findByIdAndUpdate(
+      id,
+      { $set: { "voice.voicePrompt": data.voicePrompt, "voice.audioLines": data.audioLines } },
+      { new: true }
+    );
     return updated;
   });
 

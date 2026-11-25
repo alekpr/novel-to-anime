@@ -102,7 +102,7 @@ async function mergeCharacters(
         outfits: char.outfits,
         appearanceBlock: char.appearanceBlock,
         characterSheetPrompt: char.characterSheetPrompt,
-        voice: char.voice,
+        voice: { ...char.voice, ...(char.voicePrompt ? { voicePrompt: char.voicePrompt } : {}) },
         firstAppearanceEp: epNumber,
         episodes: [epNumber],
         needsReview: char.needsReview,
@@ -152,7 +152,7 @@ async function mergeCharacters(
           appearance: char.appearance,
           appearanceBlock: char.appearanceBlock,
           characterSheetPrompt: char.characterSheetPrompt,
-          voice: char.voice,
+          voice: { ...char.voice, ...(char.voicePrompt ? { voicePrompt: char.voicePrompt } : {}) },
           needsReview: char.needsReview || hasNewOutfit,
         };
       } else if (char.needsReview || hasNewOutfit) {
@@ -173,7 +173,7 @@ async function mergeCharacters(
         outfits: char.outfits,
         appearanceBlock: char.appearanceBlock,
         characterSheetPrompt: char.characterSheetPrompt,
-        voice: char.voice,
+        voice: { ...char.voice, ...(char.voicePrompt ? { voicePrompt: char.voicePrompt } : {}) },
         firstAppearanceEp: epNumber,
         episodes: [epNumber],
         needsReview: true,
@@ -352,13 +352,14 @@ ${novelText}
 - If a character belongs to a faction listed in the existing Bible, their outfit MUST reference that faction's costumePrompt as the base
 - All prompt fields must be in English (appearanceBlock, characterSheetPrompt, outfitPrompt, outfitSheetPrompt, locationBlock, masterPrompt, costumePrompt)
 - Every character must have at least 1 outfit with outfitPrompt and outfitSheetPrompt filled
+- voicePrompt: write a concise English TTS voice description for the character, e.g. "young adult male, medium pitch, calm and measured pace, slight formal accent, speaks with quiet authority"
 
 ## Return JSON:
 \`\`\`json
 {
   "props": [ { "name": "ชื่อสิ่งของ", "aliases": [], "category": "weapon|artifact|clothing|document|container|tool|food|vehicle|other", "description": "บรรยายลักษณะภาษาไทย", "visualPrompt": "[material] [color] [shape] [condition] in English", "significance": "บทบาทในเรื่อง", "ownedByNames": ["ชื่อตัวละคร"] } ],
   "factions": [ { "name": "ชื่อกลุ่ม", "description": "", "costumeDescription": "บรรยายชุดภาษาไทย", "costumePrompt": "wearing [color] [material] [garment] with [details] in English" } ],
-  "characters": [ { "name": "ชื่อตัวละคร", "aliases": [], "role": "main|support|extra|monster", "age": "", "personality": "", "appearance": { "hair": "(infer if unknown)", "skin": "(infer if unknown)", "eyes": "(infer if unknown)", "build": "(infer if unknown)", "distinguishing": "", "defaultOutfit": "(infer if unknown)", "inferredFields": ["hair","skin"] }, "outfits": [{ "name": "ชื่อชุด", "description": "คำอธิบายชุดภาษาไทย", "outfitPrompt": "[base appearance] wearing [faction costume or outfit details] in English", "outfitSheetPrompt": "live-action film character reference sheet, multiple views, front/side/back, [base appearance] wearing [outfit], white background, photorealistic, full body" }], "voice": { "gender": "", "ageRange": "", "pitch": "", "timbre": "", "pace": "", "accent": "", "defaultEmotion": "", "speechHabits": [], "sampleLines": [] }, "appearanceBlock": "base appearance in English without outfit", "characterSheetPrompt": "live-action film character reference sheet, multiple views, front/side/back, [base appearance] wearing [default outfit], white background, photorealistic, full body", "voicePrompt": "", "needsReview": false, "needsReviewReason": "" } ],
+  "characters": [ { "name": "ชื่อตัวละคร", "aliases": [], "role": "main|support|extra|monster", "age": "", "personality": "", "appearance": { "hair": "(infer if unknown)", "skin": "(infer if unknown)", "eyes": "(infer if unknown)", "build": "(infer if unknown)", "distinguishing": "", "defaultOutfit": "(infer if unknown)", "inferredFields": ["hair","skin"] }, "outfits": [{ "name": "ชื่อชุด", "description": "คำอธิบายชุดภาษาไทย", "outfitPrompt": "[base appearance] wearing [faction costume or outfit details] in English", "outfitSheetPrompt": "live-action film character reference sheet, multiple views, front/side/back, [base appearance] wearing [outfit], white background, photorealistic, full body" }], "voice": { "gender": "", "ageRange": "", "pitch": "", "timbre": "", "pace": "", "accent": "", "defaultEmotion": "", "speechHabits": [], "sampleLines": [] }, "appearanceBlock": "base appearance in English without outfit", "characterSheetPrompt": "live-action film character reference sheet, multiple views, front/side/back, [base appearance] wearing [default outfit], white background, photorealistic, full body", "voicePrompt": "[age] [gender], [pitch] pitch, [pace] pace, [timbre], [accent if any], [emotion/manner]", "needsReview": false, "needsReviewReason": "" } ],
   "locations": [ { "name": "ชื่อสถานที่", "aliases": [], "type": "interior|exterior", "description": "", "timeOfDay": "", "lighting": "", "weather": "", "materials": "", "keyElements": [], "mood": "", "locationBlock": "location description in English", "masterPrompt": "image generation prompt in English", "relatedCharacterNames": [], "needsReview": false } ],
   "episodeSummary": "2-3 sentence summary"
 }

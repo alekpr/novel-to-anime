@@ -21,6 +21,7 @@ import { propRoutes } from "./routes/props.js";
 import { optimizeRoutes } from "./routes/optimize.js";
 import { runningHubRoutes } from "./routes/runningHub.js";
 import { imageReferenceRoutes } from "./routes/imageReferences.js";
+import { elevenLabsRoutes } from "./routes/elevenlabs.js";
 
 const ALLOWED_ORIGINS = [
   `http://localhost:${config.port}`,
@@ -72,6 +73,7 @@ export async function buildApp() {
   app.register(optimizeRoutes);
   app.register(runningHubRoutes);
   app.register(imageReferenceRoutes);
+  app.register(elevenLabsRoutes);
   app.register(import("@fastify/static").then(m => m.default), {
     root: path.join(config.dataDir, "assets"),
     prefix: "/generated-videos/",

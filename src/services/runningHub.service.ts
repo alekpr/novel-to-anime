@@ -46,7 +46,12 @@ async function runningHubRequest(route: string, apiKey: string, input: Record<st
   if (!response.ok || !envelope.success) throw new RunningHubError(502, `RunningHub ตอบกลับผิดรูปแบบ (HTTP ${response.status})`, response.ok || response.status >= 500);
   if (envelope.data.code !== 0) {
     const message = envelope.data.msg?.split(apiKey).join("[API Key]").replace(/[\r\n]+/g, " ").slice(0, 200);
-    throw new RunningHubError(502, `RunningHub แจ้งข้อผิดพลาด ${envelope.data.code}${message ? ` · ${message}` : ""}`);
+    const code = envelope.data.code;
+    const friendly = code === 301 || message?.toLowerCase().includes("user not exist")
+      ? "API Key ไม่ถูกต้องหรือหมดอายุ กรุณาตรวจและอัปเดต API Key ใน Setup RunningHub"
+      : code === 302 ? "Workflow ID ไม่ถูกต้อง กรุณาตรวจเลข Workflow ใน Setup RunningHub"
+      : `RunningHub แจ้งข้อผิดพลาด ${code}${message ? ` · ${message}` : ""}`;
+    throw new RunningHubError(502, friendly);
   }
   return envelope.data.data;
 }

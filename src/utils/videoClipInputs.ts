@@ -1,4 +1,9 @@
 export const MAX_REFERENCE_IMAGES = 9;
+export const MAX_REFERENCE_AUDIOS = 3;
+export const MAX_REFERENCE_AUDIO_BYTES = 20_000_000;
+export function supportedReferenceAudio(name: string, bytes: number) {
+  return /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(name) && bytes > 0 && bytes <= MAX_REFERENCE_AUDIO_BYTES;
+}
 export const MAX_REFERENCE_IMAGE_BYTES = 10_000_000;
 export const videoRatio = (prompt: string) => prompt.split("\n", 1)[0].match(/\b([1-9]\d{0,2}:[1-9]\d{0,2})\b/)?.[1];
 export const videoDuration = (prompt: string) => {

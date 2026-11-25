@@ -9,7 +9,7 @@ const Graph = z.record(z.string(), z.object({
   _meta: z.object({ title: z.string().optional() }).passthrough().optional(),
 }).passthrough());
 type WorkflowGraph = z.infer<typeof Graph>;
-type WorkflowInput = { prompt: string; ratio: string; duration: number; imagePaths: string[] };
+type WorkflowInput = { prompt: string; ratio: string; duration: number; imagePaths: string[]; audioPaths?: string[] };
 type Overrides = { nodeId: string; fieldName: string; fieldValue: unknown }[];
 type WorkflowRequest = { nodeInfoList: Overrides } | { workflow: string };
 
@@ -110,6 +110,12 @@ function nativeH3Inputs(graph: WorkflowGraph, targetId: string) {
       const id = String(nodeNumber++);
       workflow[id] = { class_type: "LoadImage", inputs: { image: file } };
       target[`ref_images.ref_image_${i}`] = [id, 0];
+    });
+    (input.audioPaths ?? []).forEach((file, i) => {
+      while (Object.hasOwn(workflow, String(nodeNumber))) nodeNumber++;
+      const id = String(nodeNumber++);
+      workflow[id] = { class_type: "LoadAudio", inputs: { audio: file } };
+      target[`ref_audios.ref_audio_${i}`] = [id, 0];
     });
     return { workflow: JSON.stringify(workflow) };
   };

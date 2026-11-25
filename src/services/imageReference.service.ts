@@ -4,9 +4,10 @@ import type { Buffer } from "node:buffer";
 import { callStructured, GeminiRequestError, LLMRequestError } from "../llm/client.js";
 import { Character } from "../models/Character.js";
 import { Location } from "../models/Location.js";
+import { PropObject } from "../models/PropObject.js";
 import { Scene } from "../models/Scene.js";
 import { queues } from "../queues/jobRunner.js";
-import { characterReferenceSheet, locationReferenceSheet } from "../templates/referenceSheet.js";
+import { characterReferenceSheet, locationReferenceSheet, propReferenceSheet } from "../templates/referenceSheet.js";
 import { outfitImageKeys } from "../utils/imageReferenceKeys.js";
 import { withProjectActivity } from "./projectLifecycle.service.js";
 import { runPromptGeneration } from "./prompt.service.js";
@@ -16,10 +17,12 @@ const slotSchema = z.union([
   z.tuple([z.literal("character"), objectId]),
   z.tuple([z.literal("outfit"), objectId, z.string(), z.number().int().positive()]),
   z.tuple([z.literal("location"), objectId]),
+  z.tuple([z.literal("prop"), objectId]),
 ]);
 const text = z.string().trim().max(2500);
 const characterVisuals = z.object({ appearance: text, wardrobe: text });
 const locationVisuals = z.object({ location: text });
+const propVisuals = z.object({ visualPrompt: text });
 
 type ReferenceTarget = { _id: Types.ObjectId; name: string; updatedAt?: Date };
 type CharacterTarget = ReferenceTarget & {
@@ -88,6 +91,21 @@ async function saveImageReference(projectId: string, slot: ReferenceSlot, image:
     });
     if (!result.matchedCount) throw new ImageReferenceError(409, "สถานที่ถูกแก้ระหว่างวิเคราะห์ภาพ ลองอัปเดตอีกครั้ง");
     return { role: "location", name: loc.name };
+  }
+
+  if (kind === "prop") {
+    const prop = await PropObject.findOne({ _id: id, projectId }).lean<ReferenceTarget & { name: string; visualPrompt: string }>();
+    if (!prop) throw new ImageReferenceError(404, "ไม่พบสิ่งของของโปรเจกต์นี้");
+    const { visualPrompt } = await describeImage(image,
+      'Describe the physical object in detail: shape, size, material, color, texture, markings and any distinctive features. For a multi-panel reference, describe the same object across views. Output {"visualPrompt":""}.',
+      propVisuals,
+    );
+    if (!visualPrompt) throw new ImageReferenceError(422, "ภาพนี้ยังเห็นรายละเอียดสิ่งของไม่ชัด");
+    const result = await PropObject.updateOne({ _id: prop._id }, {
+      $set: { visualPrompt },
+    });
+    if (!result.matchedCount) throw new ImageReferenceError(409, "สิ่งของถูกแก้ระหว่างวิเคราะห์ภาพ ลองอัปเดตอีกครั้ง");
+    return undefined; // props ไม่มี legacy reference ใน clips
   }
 
   const char = await Character.findOne({ _id: id, projectId }).lean<CharacterTarget>();

@@ -240,27 +240,28 @@ ${toPromptNames(sceneText)}
 `.trim();
 
   const schema = shortDrama ? ShotListResult.superRefine(({ shots }, ctx) => {
-    if (dialoguePurpose && !shots.some(shot => shot.dialogue.some(line => isSpokenLine(line.lineTh)))) {
+    const alignedShots = alignDramaShotTiming(shots, sceneDurationSec);
+    if (dialoguePurpose && !alignedShots.some(shot => shot.dialogue.some(line => isSpokenLine(line.lineTh)))) {
       ctx.addIssue({ code: "custom", path: ["shots"], message:
         "This scene requires at least one real spoken line in dialogue with an approved visible speaker. Do not use narration or an ellipsis as a line." });
     }
-    if (!fitsDramaScene(alignDramaShotTiming(shots, sceneDurationSec), sceneDurationSec)) {
-      const returnedDuration = shotTimeline(shots).at(-1)?.end ?? 0;
+    if (!fitsDramaScene(alignedShots, sceneDurationSec)) {
+      const returnedDuration = shotTimeline(alignedShots).at(-1)?.end ?? 0;
       ctx.addIssue({ code: "custom", path: ["shots"], message:
         `Your shots total ${returnedDuration}s. Adjust the shot times to exactly ${sceneDurationSec}s in tenths, 0.5–4s silent or up to 7s with dialogue.` });
     }
-    const first = shots[0].cameraAngle;
-    const last = shots.at(-1)?.cameraAngle;
+    const first = alignedShots[0].cameraAngle;
+    const last = alignedShots.at(-1)?.cameraAngle;
     if (!first || (opening && first !== opening) || (previous?.angle && !distinctDramaAngles(first, previous.angle))) {
       ctx.addIssue({ code: "custom", path: ["shots", 0, "cameraAngle"], message:
         `Use opening angle ${opening ?? "clearly different from the previous scene"}; the previous scene closes on ${previous?.angle ?? previous?.camera ?? "no prior camera"}.` });
     }
     if (!last || (closing && last !== closing) || (next?.angle && !distinctDramaAngles(last, next.angle))) {
-      ctx.addIssue({ code: "custom", path: ["shots", shots.length - 1, "cameraAngle"], message:
+      ctx.addIssue({ code: "custom", path: ["shots", alignedShots.length - 1, "cameraAngle"], message:
         `Use closing angle ${closing ?? "clearly different from the next scene"}; the next scene opens on ${next?.angle ?? next?.camera ?? "no next camera"}.` });
     }
     let totalSpeech = 0;
-    shots.forEach((shot, index) => {
+    alignedShots.forEach((shot, index) => {
       const visible = new Set(shot.characterNames.map(toCharacterName));
       if (!shot.direction || !shot.camera.trim() || !shot.cameraAngle || !shot.action.trim() ||
           [...visible].some(name => !charMap.has(name)) ||
@@ -273,14 +274,14 @@ ${toPromptNames(sceneText)}
       }
       const speech = dramaSpeechSeconds(shot.dialogue.map(line => ({ lineTh: replaceChar(line.lineTh) })));
       totalSpeech += speech;
-      if (shot.dialogue.length > 1 || speech > shot.durationSec) {
+      if (shot.dialogue.length > 1) {
         ctx.addIssue({ code: "custom", path: ["shots", index, "dialogue"], message:
-          `Write at most one brief line, keeping the punch or new information and cutting setup. This dialogue needs about ${speech.toFixed(1)}s for a ${shot.durationSec}s shot. Label shortened source dialogue generated.` });
+          `Write at most one brief line per shot. This shot has ${shot.dialogue.length} lines.` });
       }
     });
-    if (dialogueBudgetSec !== undefined && totalSpeech > dialogueBudgetSec) {
-      ctx.addIssue({ code: "custom", path: ["shots"], message:
-        `The dialogue takes about ${totalSpeech.toFixed(1)}s. Keep only the essential spoken beats and stay within the scene's ${dialogueBudgetSec}s speech budget.` });
+    if (dialogueBudgetSec !== undefined && totalSpeech > dialogueBudgetSec + 0.5) {
+      // budget exceeded — log only, alignDramaShotTiming will expand durationSec to fit
+      console.warn(`[shots] dialogue ${totalSpeech.toFixed(1)}s exceeds budget ${dialogueBudgetSec}s — will auto-expand`);
     }
   }) : ShotListResult;
   const request = {

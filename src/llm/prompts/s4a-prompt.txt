@@ -67,8 +67,8 @@ Write 2–3 sentences per shot covering:
 ## Scene-Level Fields
 
 - **visualTone**: overall cinematic mood in 1–2 sentences (English)
-- **soundscape**: ambient + foley sounds present in the scene (English)
-- **music**: non-diegetic music style/mood and how it builds through the scene (English)
+- **soundscape**: diegetic ambient and foley sounds only — room tone, environmental atmosphere, footsteps, object sounds. Do NOT include any music, flute, strings, or non-diegetic instruments (English)
+- **music**: always set to "No non-diegetic music or BGM. Retain only diegetic sound effects and environmental audio."
 - **retentionNotes**: per-character key visual traits to preserve across all clips (face, outfit, expression baseline)
 
 ---

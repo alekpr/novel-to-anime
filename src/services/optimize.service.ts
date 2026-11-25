@@ -1,9 +1,11 @@
-import { callText } from "../llm/client.js";
+import { callText, callStructured } from "../llm/client.js";
 import { loadPrompt } from "../llm/prompts.js";
 import { Scene } from "../models/Scene.js";
 import { Character } from "../models/Character.js";
 import { Location } from "../models/Location.js";
 import { Types } from "mongoose";
+import { usesLatinVideoPrompt, videoPromptStructure } from "../utils/videoPromptLanguage.js";
+import { z } from "zod";
 
 export interface OptimizeResult {
   analysisReport: string;
@@ -119,20 +121,24 @@ export async function runOptimizeScene(
 
   const loc = scene.locationId as unknown as { name: string; masterPrompt: string } | null;
 
-  // สร้าง reference image context
+  // สร้าง reference image context — ลำดับต้องตรงกับ referenceSlots ใน DB:
+  // characters ก่อน (ตาม scene.characterIds) แล้วค่อย location ทีหลัง
   const refImageLines: string[] = [];
   let picIdx = 1;
   const formatRef = (n: number) => imageRefFormat === "@Image" ? `@Image ${n}` : `<Picture ${n}>`;
-  if (loc) {
-    refImageLines.push(`${formatRef(picIdx++)} (Location "${loc.name}"): ${loc.masterPrompt || "no prompt"} [UNVERIFIED — no image file provided]`);
-  }
-  for (const c of characters) {
+  // characters first (matches shortDramaPrompt.service.ts references order)
+  const charOrder = ((scene.characterIds as unknown as Types.ObjectId[]) ?? []).map(id => characters.find(c => c._id.equals(id))).filter((c): c is typeof characters[number] => !!c);
+  for (const c of charOrder) {
     const approved = c.referenceImages?.find(r => r.approved);
     if (approved) {
       refImageLines.push(`${formatRef(picIdx++)} (Character "${c.name}"): ${c.appearanceBlock} [VERIFIED — reference image available at ${approved.url}]`);
     } else {
       refImageLines.push(`${formatRef(picIdx++)} (Character "${c.name}"): ${c.appearanceBlock} [UNVERIFIED — no approved reference image]`);
     }
+  }
+  // location last
+  if (loc) {
+    refImageLines.push(`${formatRef(picIdx++)} (Location "${loc.name}"): ${loc.masterPrompt || "no prompt"} [UNVERIFIED — no image file provided]`);
   }
 
   const sc = scene as unknown as { sceneCode: string; title: string; mood?: string };
@@ -170,6 +176,26 @@ Optimize the above prompt(s) according to the validation rules. Output all 7 req
   });
 
   const sections = parseSections(raw);
+
+  // auto-translate optimizedClips ที่มีภาษาไทยนอก <d> tags
+  sections.optimizedClips = await Promise.all(sections.optimizedClips.map(async clip => {
+    if (!clip || usesLatinVideoPrompt(clip)) return clip;
+    const structure = videoPromptStructure(clip);
+    try {
+      const { data } = await callStructured({
+        system: "Translate the production text of this video prompt into idiomatic English, including location and appearance descriptions, shot directions, sound and delivery cues. Preserve the formatting, heading names, timing, reference IDs and speaker IDs. Only approved speech inside existing <d> tags stays in its original language. Copy each entire <d> block exactly and leave it with its original speaker and shot. Return JSON with the full prompt as videoPrompt.",
+        user: JSON.stringify({ videoPrompt: clip }),
+        schema: z.object({ videoPrompt: z.string().trim().min(1) }).refine(
+          ({ videoPrompt }) => usesLatinVideoPrompt(videoPrompt) && videoPromptStructure(videoPrompt) === structure,
+          "Translate all text outside dialogue tags into English and preserve the tags and prompt structure.",
+        ),
+        temperature: 0.1,
+      });
+      return data.videoPrompt;
+    } catch {
+      return clip; // ถ้า translate ไม่สำเร็จ ใช้ค่าเดิม
+    }
+  }));
 
   // fallback: ถ้า parse ไม่ได้เลย ให้ใส่ raw ทั้งหมดใน analysisReport
   const hasAnyContent = sections.analysisReport || sections.optimizedClips.some(c => c.length > 0);

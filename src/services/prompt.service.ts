@@ -97,6 +97,8 @@ export async function runPromptGeneration(
     } catch { /* ใช้ action เดิม */ }
   }
 
+  const styleGuide = (project as unknown as { styleGuide?: { artStyle?: string; aspectRatio?: string; promptPrefix?: string; negativePrompt?: string } }).styleGuide;
+
   const sc = scene as unknown as { sceneCode: string; title: string; mood?: string; summary?: string };
   const videoModel = (project as unknown as { videoModel?: { maxDurationSec?: number } }).videoModel;
 
@@ -113,6 +115,7 @@ export async function runPromptGeneration(
 
   const userPrompt = `## Scene: ${sc.sceneCode} — ${sc.title}
 Location: ${locationName} | Mood: ${sc.mood ?? ""} | Summary: ${sc.summary ?? ""}
+Art style: ${styleGuide?.artStyle ?? "photorealistic live-action"}${styleGuide?.aspectRatio ? ` | Aspect ratio: ${styleGuide.aspectRatio}` : ""}
 
 ## Characters (use {{char:ID}} tokens in description; IDs listed below)
 ${charContext || "(none)"}
@@ -222,7 +225,10 @@ Also provide scene-level fields: title, sceneType, summary, visualTone, soundsca
     referencePictures: [],
     dialogueLanguage,
     clipPolicy,
-    promptPrefix: (project as unknown as { styleGuide?: { promptPrefix?: string } }).styleGuide?.promptPrefix ?? "DY",
+    promptPrefix: styleGuide?.promptPrefix ?? "DY",
+    artStyle: styleGuide?.artStyle,
+    aspectRatio: styleGuide?.aspectRatio,
+    negativePrompt: styleGuide?.negativePrompt,
   });
 
   const clips = await Promise.all(assembledClips.map(async clip => {

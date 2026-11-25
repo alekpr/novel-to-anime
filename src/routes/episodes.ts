@@ -3,6 +3,9 @@ import { Character } from "../models/Character.js";
 import { Episode } from "../models/Episode.js";
 import { Location } from "../models/Location.js";
 import { Scene } from "../models/Scene.js";
+import { analyzeEpisodeBgm, getEpisodeBgmAnalysis } from "../services/episodeBgm.service.js";
+import { generateLyriaAudio } from "../services/lyria.service.js";
+import { config } from "../config/index.js";
 import { Shot } from "../models/Shot.js";
 import { episodeProductionProgress } from "../utils/episodeProduction.js";
 import { episodeBibleSelector } from "../utils/episodeBible.js";
@@ -115,5 +118,59 @@ export async function episodeRoutes(app: FastifyInstance) {
     const ep = await Episode.findByIdAndUpdate(id, req.body as object, { new: true });
     if (!ep) return reply.code(404).send({ error: "Not found" });
     return ep;
+  });
+
+  app.get("/episodes/:id/bgm-analysis", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try { return { analysis: await getEpisodeBgmAnalysis(id) }; }
+    catch (e) { return reply.code(422).send({ error: (e as Error).message }); }
+  });
+
+  app.post("/episodes/:id/analyze-bgm", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try { return { analysis: await analyzeEpisodeBgm(id) }; }
+    catch (e) { return reply.code(422).send({ error: (e as Error).message }); }
+  });
+
+  // Manually set audioUrl for a cue (without regenerating)
+  app.patch("/episodes/:id/bgm-cue/:cueNumber/audio-url", async (req, reply) => {
+    const { id, cueNumber } = req.params as { id: string; cueNumber: string };
+    const { audioUrl } = req.body as { audioUrl: string };
+    if (!audioUrl?.trim()) return reply.code(400).send({ error: "audioUrl is required" });
+    const idx = parseInt(cueNumber, 10) - 1;
+    await Episode.findByIdAndUpdate(id, { [`bgmAnalysis.cues.${idx}.audioUrl`]: audioUrl });
+    return { ok: true };
+  });
+
+  // Generate Lyria audio for a specific cue
+  app.post("/episodes/:id/generate-lyria-cue", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { cueNumber, prompt, durationSec } = req.body as { cueNumber: number; prompt: string; durationSec: number };
+    if (!prompt?.trim()) return reply.code(400).send({ error: "prompt is required" });
+    if (!durationSec || durationSec <= 0) return reply.code(400).send({ error: "durationSec is required" });
+    try {
+      const filename = `ep_${id}_cue${cueNumber}_v${Date.now()}.mp3`;
+      const result = await generateLyriaAudio(prompt, durationSec, config.audioDir, filename);
+      // persist audioUrl into bgmAnalysis.cues
+      await Episode.findByIdAndUpdate(id, {
+        [`bgmAnalysis.cues.${cueNumber - 1}.audioUrl`]: result.url,
+      });
+      return result;
+    } catch (e) {
+      const msg = (e as Error).message;
+      console.error("[lyria] generate error:", msg);
+      return reply.code(422).send({ error: msg });
+    }
+  });
+
+  // Serve generated audio files
+  app.get("/audio/:filename", async (req, reply) => {
+    const { filename } = req.params as { filename: string };
+    if (filename.includes("..") || filename.includes("/")) return reply.code(400).send({ error: "invalid" });
+    const filePath = `${config.audioDir}/${filename}`;
+    try {
+      const stream = (await import("fs")).createReadStream(filePath);
+      return reply.type("audio/mpeg").send(stream);
+    } catch { return reply.code(404).send({ error: "not found" }); }
   });
 }

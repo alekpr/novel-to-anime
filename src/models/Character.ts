@@ -24,6 +24,9 @@ const voiceSchema = new Schema({
   gender: String, ageRange: String, pitch: String, timbre: String,
   pace: String, accent: String, defaultEmotion: String,
   speechHabits: [String], sampleLines: [String], voicePrompt: String,
+  audioLines: [{ tag: String, line: String, _id: false }],
+  audioReference: String,
+  elevenLabsVoiceId: String,
 }, { _id: false });
 
 const refImageSchema = new Schema({ url: String, approved: { type: Boolean, default: false } }, { _id: false });

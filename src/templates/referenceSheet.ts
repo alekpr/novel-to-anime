@@ -16,3 +16,20 @@ export function locationReferenceSheet(name: string, description: string) {
     "Keep the same architecture, doors, furniture, props, material textures, time of day and light direction in all four views. Use thin neutral dividers. No labels, text or unrelated inserts.",
   ].join("\n\n");
 }
+
+export function propReferenceSheet(name: string, visualPrompt: string) {
+  return [
+    `Create one ultra-realistic live-action 2×2 production reference sheet of the prop "${name}". ${visualPrompt}`,
+    "TOP LEFT: front view on a neutral studio surface. TOP RIGHT: rear or opposite-side view. BOTTOM LEFT: 45-degree three-quarter view showing depth and texture. BOTTOM RIGHT: close-up detail of the most distinctive feature, material or marking.",
+    "Keep identical lighting, scale, color and material across all four panels. Thin neutral dividers. No labels, text, watermarks or unrelated objects.",
+  ].join("\n\n");
+}
+
+export function audioReferencePrompt(characterName: string, voicePrompt: string) {
+  return [
+    `Generate a voice reference audio clip for the character "${characterName}". Maximum duration: 15 seconds.`,
+    voicePrompt && `Voice characteristics: ${voicePrompt}`,
+    "The clip should contain natural spoken dialogue that clearly demonstrates the character's voice tone, pitch, pace, accent and emotional register.",
+    "Use a single clear sentence or short exchange. No background music or sound effects. Clean studio-quality recording.",
+  ].filter(Boolean).join("\n\n");
+}

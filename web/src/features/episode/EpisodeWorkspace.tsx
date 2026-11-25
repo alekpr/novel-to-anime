@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { EpisodeStepper } from '../../components/EpisodeStepper'
@@ -14,7 +14,7 @@ import { ScenesStep } from '../scenes/ScenesStep'
 import { ShotsStep } from '../shots/ShotsStep'
 import { VideoPromptsStep } from '../video/VideoPromptsStep'
 import { useEpisodeStatus } from '../../hooks/useEpisodeStatus'
-import { episodesApi } from '../../lib/api'
+import { episodesApi, projectsApi } from '../../lib/api'
 import type { StepStatus } from '../../hooks/useEpisodeStatus'
 
 type StepKey = 'import' | 'bible' | 'scenes' | 'shots' | 'images' | 'clips' | 'video' | 'export'
@@ -43,6 +43,95 @@ const NEXT_MSG: Record<StepKey, string> = {
 
 interface Props { projectId: string }
 
+const ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9']
+
+function ProjectSettingsDialog({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+  const qc = useQueryClient()
+  const { data: project } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => projectsApi.list().then(list => list.find(p => p._id === projectId)),
+  })
+  const [ratio, setRatio] = useState('')
+  const [artStyle, setArtStyle] = useState('')
+  const [promptPrefix, setPromptPrefix] = useState('')
+  const [negativePrompt, setNegativePrompt] = useState('')
+
+  useEffect(() => {
+    if (!project) return
+    setRatio(project.styleGuide?.aspectRatio ?? '16:9')
+    setArtStyle(project.styleGuide?.artStyle ?? 'anime cel-shaded')
+    setPromptPrefix(project.styleGuide?.promptPrefix ?? 'DY')
+    setNegativePrompt(project.styleGuide?.negativePrompt ?? '')
+  }, [project])
+
+  const save = useMutation({
+    mutationFn: () => projectsApi.updateSettings(projectId, {
+      aspectRatio: ratio, artStyle, promptPrefix, negativePrompt,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['project', projectId] })
+      onClose()
+    },
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-base">⚙ Project Settings</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Aspect Ratio</label>
+            <div className="flex flex-wrap gap-2">
+              {ASPECT_RATIOS.map(r => (
+                <button key={r} type="button"
+                  onClick={() => setRatio(r)}
+                  className={`px-3 py-1.5 rounded border text-sm font-mono ${
+                    ratio === r ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 hover:bg-gray-50'
+                  }`}>
+                  {r}
+                </button>
+              ))}
+              <input
+                value={ASPECT_RATIOS.includes(ratio) ? '' : ratio}
+                onChange={e => setRatio(e.target.value)}
+                placeholder="custom e.g. 2:1"
+                className="border rounded px-2 py-1 text-sm font-mono w-32 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">ค่าปัจจุบัน: <span className="font-mono">{ratio}</span></p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Art Style</label>
+            <input value={artStyle} onChange={e => setArtStyle(e.target.value)}
+              className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Prompt Prefix</label>
+            <input value={promptPrefix} onChange={e => setPromptPrefix(e.target.value)}
+              className="w-full border rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Negative Prompt</label>
+            <textarea value={negativePrompt} onChange={e => setNegativePrompt(e.target.value)} rows={2}
+              className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50">ยกเลิก</button>
+          <button onClick={() => save.mutate()} disabled={save.isPending}
+            className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40">
+            {save.isPending ? 'กำลังบันทึก…' : 'บันทึก'}
+          </button>
+        </div>
+        {save.isError && <p className="text-xs text-red-600">{String(save.error)}</p>}
+      </div>
+    </div>
+  )
+}
+
 export function EpisodeWorkspace({ projectId }: Props) {
   const { episodeId: paramEpId } = useParams<{ episodeId?: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -52,6 +141,7 @@ export function EpisodeWorkspace({ projectId }: Props) {
   const [step, setStep] = useState<StepKey>(episodeId && !reviewSource ? 'bible' : 'import')
   const [selectedSceneId, setSelectedSceneId] = useState<string | undefined>()
   const [autoStepped, setAutoStepped] = useState(false)
+  const [showProjectSettings, setShowProjectSettings] = useState(false)
 
   // reset autoStepped เมื่อ episodeId เปลี่ยน
   useEffect(() => {
@@ -126,6 +216,8 @@ export function EpisodeWorkspace({ projectId }: Props) {
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-3">
           <AiProviderBadge />
+          <button onClick={() => setShowProjectSettings(true)}
+            className="text-xs text-gray-400 hover:text-gray-600">⚙ Project</button>
           <a href="/settings" className="text-xs text-gray-400 hover:text-gray-600">⚙ Settings</a>
         </div>
       </div>
@@ -198,6 +290,9 @@ export function EpisodeWorkspace({ projectId }: Props) {
         onNext={!isLast && step !== 'import' && scenesCanContinue ? goNext : undefined}
         nextDisabled={!bibleCanContinue}
       />
+      {showProjectSettings && (
+        <ProjectSettingsDialog projectId={projectId} onClose={() => setShowProjectSettings(false)} />
+      )}
     </div>
   )
 }

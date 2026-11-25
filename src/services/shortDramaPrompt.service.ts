@@ -9,6 +9,8 @@ import { Shot } from "../models/Shot.js";
 import { assembleShortDramaH3 } from "../templates/shortDramaH3.js";
 import { DRAMA_REPLAN_MESSAGE, fitsDramaScene, isDramaClipDuration } from "../utils/shortDrama.js";
 import { countDramaDialogue } from "../utils/dramaDialogue.js";
+import { Project } from "../models/Project.js";
+import { Episode } from "../models/Episode.js";
 import { characterImageKey, locationImageKey, outfitImageKeys } from "../utils/imageReferenceKeys.js";
 import { usesLatinVideoDirection, usesLatinVideoPrompt } from "../utils/videoPromptLanguage.js";
 import type { DramaCameraAngle } from "../utils/dramaCamera.js";
@@ -16,7 +18,7 @@ import type { DramaCameraAngle } from "../utils/dramaCamera.js";
 const DirectionText = z.string().trim().min(1)
   .refine(usesLatinVideoDirection, "Write all production directions in English without dialogue tags.");
 const SpokenDelivery = z.string().trim().max(100).regex(/^(?:in an? [a-zA-Z][a-zA-Z ,'-]* voice)?$/,
-  'Use an English phrase like "in a low, steady voice", or an empty string.');
+  'Use an English phrase like "in a low, steady voice", or an empty string.').catch("");
 const VisualDirection = z.object({
   overview: DirectionText,
   references: z.array(z.object({ subject: z.number().int(), description: DirectionText })),
@@ -178,6 +180,10 @@ export async function runShortDramaPrompt(scene: DramaScene) {
     temperature: 0.2,
   });
 
+  const episode = await Episode.findById(scene.episodeId).select("projectId").lean() as any;
+  const project = await Project.findById(episode?.projectId).select("styleGuide").lean() as any;
+  const styleGuide = project?.styleGuide;
+
   const { prompt, references: referenceSlots } = assembleShortDramaH3({
     overview: data.overview,
     blocking: data.blocking,
@@ -193,6 +199,8 @@ export async function runShortDramaPrompt(scene: DramaScene) {
         delivery: data.shots[i].spokenDelivery[lineIndex].cue,
       })),
     })),
+    aspectRatio: styleGuide?.aspectRatio,
+    artStyle: styleGuide?.artStyle,
   });
   if (!usesLatinVideoPrompt(prompt)) throw new Error("Video Prompt ต้องใช้ภาษาอังกฤษ ยกเว้นบทพูดที่อยู่ในแท็ก <d>");
   const clip = {

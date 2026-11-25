@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import type { EpisodeStatusResult } from '../../hooks/useEpisodeStatus'
-import { charactersApi, locationsApi } from '../../lib/api'
-import { characterImageKey, locationImageKey, outfitImageKeys } from '../../../../src/utils/imageReferenceKeys'
-export { characterImageKey, locationImageKey, outfitImageKeys }
+import { charactersApi, locationsApi, propsApi } from '../../lib/api'
+import { characterImageKey, locationImageKey, outfitImageKeys, propImageKey } from '../../../../src/utils/imageReferenceKeys'
+export { characterImageKey, locationImageKey, outfitImageKeys, propImageKey }
 import {
   chooseImageReference, chooseImageWorkspace, grantImageAccess, inspectImageWorkspace,
   supportsImageFolders, unlinkImageReference,
@@ -24,12 +24,19 @@ export function useImageResources(projectId: string, bible: EpisodeStatusResult[
     queryFn: () => locationsApi.list(projectId),
     enabled: enabled && !!bible,
   })
+  const { data: allProps, isError: propsFailed } = useQuery({
+    queryKey: ['props', projectId],
+    queryFn: () => propsApi.list(projectId),
+    enabled: enabled && !!bible,
+  })
 
   const chars = (allChars ?? []).filter(char => bible?.characterIds.includes(char._id))
   const locs = (allLocs ?? []).filter(loc => bible?.locationIds.includes(loc._id))
+  const props = allProps ?? []
   const keys = [
     ...chars.flatMap(char => char.outfits?.length ? outfitImageKeys(char) : [characterImageKey(char._id)]),
     ...locs.map(loc => locationImageKey(loc._id)),
+    ...props.map(p => propImageKey(p._id)),
   ].sort()
   const queryPrefix = ['image-workspace', projectId]
   const query = useQuery({
@@ -77,10 +84,10 @@ export function useImageResources(projectId: string, bible: EpisodeStatusResult[
   }
 
   return {
-    projectId, chars, locs, total: keys.length, ready, missing, complete, references,
+    projectId, chars, locs, props, total: keys.length, ready, missing, complete, references,
     supported: supportsImageFolders,
     isLoading: enabled && ((!!bible && ((!allChars && !charsFailed) || (!allLocs && !locsFailed))) || query.isLoading),
-    loadFailed: charsFailed || locsFailed || query.isError,
+    loadFailed: charsFailed || locsFailed || propsFailed || query.isError,
     folderName: workspace?.folder.name,
     workspaceId: workspace?.workspaceId,
     folderStatus: data?.folderStatus ?? 'none',

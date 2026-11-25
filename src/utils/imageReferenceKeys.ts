@@ -15,3 +15,7 @@ export function outfitImageKeys(char: { _id: string; outfits?: readonly { name?:
 export function locationImageKey(locationId: string) {
   return JSON.stringify(["location", locationId]);
 }
+
+export function propImageKey(propId: string) {
+  return JSON.stringify(["prop", propId]);
+}

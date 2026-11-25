@@ -21,6 +21,15 @@ const clipUrl = (sceneId: string, clipCode: string) =>
 export const runningHubSettingsKey = ['runninghub-settings']
 export const runningHubCountsKey = (episodeId: string) => ['runninghub-counts', episodeId]
 
+export type VideoHistoryEntry = {
+  id: string
+  promptVersion: number
+  submitIndex: number
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  videoCount: number
+  createdAt: string
+}
+
 export const runningHubApi = {
   settings: () => api.get<RunningHubSettings>('/runninghub/settings').then(response => response.data),
   saveSettings: (input: { apiKey?: string; workflowId: string }) =>
@@ -28,6 +37,8 @@ export const runningHubApi = {
   test: () => api.post<RunningHubSettings>('/runninghub/test').then(response => response.data),
   getCounts: (episodeId: string) => api.get<{ counts: Record<string, number> }>(`/episodes/${episodeId}/runninghub/counts`).then(response => response.data.counts),
   getJob: (sceneId: string, clipCode: string) => api.get<{ job: VideoJob | null }>(clipUrl(sceneId, clipCode)).then(response => response.data),
+  getHistory: (sceneId: string, clipCode: string) =>
+    api.get<{ history: VideoHistoryEntry[] }>(`${clipUrl(sceneId, clipCode)}/history`).then(response => response.data.history),
   send: (sceneId: string, clipCode: string, body: FormData) =>
     api.post<{ job: VideoJob }>(clipUrl(sceneId, clipCode), body).then(response => response.data),
 }

@@ -17,7 +17,7 @@ import {
   createRunningHubTask, getRunningHubWorkflow, readRunningHubSettings, RunningHubError, runningHubTaskResult, uploadRunningHubImage,
 } from "./runningHub.service.js";
 import { planWorkflow } from "../utils/runningHubWorkflow.js";
-import { supportedReferenceImage, validPictureSlots, videoDuration, videoRatio } from "../utils/videoClipInputs.js";
+import { supportedReferenceImage, validPictureSlots, videoDuration, videoRatio, supportedReferenceAudio, MAX_REFERENCE_AUDIOS } from "../utils/videoClipInputs.js";
 import { isDramaClipDuration } from "../utils/shortDrama.js";
 import { usesLatinVideoPrompt } from "../utils/videoPromptLanguage.js";
 
@@ -70,28 +70,44 @@ export async function submitRunningHubVideo(sceneId: string, clipCode: string, f
   const projectId = String(scene.projectId);
   return withProjectActivity(projectId, async () => {
     if (String(clip.promptVersion) !== form.get("promptVersion")) throw new RunningHubError(409, "พรอมป์เปลี่ยนแล้ว กรุณาเปิดคลิปอีกครั้ง");
-    if (!usesLatinVideoPrompt(clip.videoPrompt)) {
+    // optimizedPrompt = H3 prompt จาก tab Optimizer (ถ้ามี) ใช้แทน clip.videoPrompt
+    const optimizedPrompt = form.get("optimizedPrompt");
+    const promptText = (typeof optimizedPrompt === "string" && optimizedPrompt.trim())
+      ? optimizedPrompt.trim()
+      : clip.videoPrompt;
+    const isOptimized = promptText !== clip.videoPrompt;
+    if (!usesLatinVideoPrompt(promptText)) {
       throw new RunningHubError(422, "พรอมป์นี้ยังมีข้อความนอกบทพูดที่เป็นภาษาอื่น กรุณาสร้างพรอมป์ใหม่ในขั้น 6");
     }
     if (!Number.isFinite(clip.durationSec) || clip.durationSec <= 0 ||
         (scene.dramaBeat && (!scene.shotsApproved || !isDramaClipDuration(clip.durationSec)))) {
       throw new RunningHubError(422, "กรุณาตรวจอนุมัติช็อตและความยาวที่ระบุในพรอมป์");
     }
-    const declaredDuration = videoDuration(clip.videoPrompt);
+    const declaredDuration = isOptimized ? undefined : videoDuration(promptText);
     if (declaredDuration !== undefined && declaredDuration !== clip.durationSec) {
       throw new RunningHubError(422, "ความยาวในพรอมป์ไม่ตรงกับคลิป กรุณาสร้างพรอมป์ใหม่");
     }
     const project = await Project.findById(scene.projectId).select("styleGuide.aspectRatio").lean();
-    const ratio = videoRatio(clip.videoPrompt) ?? (scene.dramaBeat ? "9:16" : project?.styleGuide?.aspectRatio);
+    const projectRatio = project?.styleGuide?.aspectRatio;
+    const ratio = projectRatio ?? videoRatio(promptText) ?? (scene.dramaBeat ? "9:16" : undefined);
     if (typeof ratio !== "string" || !/^[1-9]\d{0,2}:[1-9]\d{0,2}$/.test(ratio)) throw new RunningHubError(422, "พรอมป์ไม่มีสัดส่วนภาพที่ใช้ได้");
     const slots = (clip.referenceSlots ?? []).slice().sort((a, b) => a.index - b.index);
-    if (!validPictureSlots(clip.videoPrompt, slots)) {
+    if (!isOptimized && !validPictureSlots(promptText, slots)) {
       throw new RunningHubError(422, "กรุณาสร้างพรอมป์ที่มีลำดับ Picture ถูกต้องก่อนส่ง");
     }
     const files = slots.map(slot => form.get(`picture-${slot.index}`));
     if (!files.every(isFile)) throw new RunningHubError(422, "แนบภาพอ้างอิงให้ครบตามลำดับ Picture ก่อนส่ง");
     if (!(await Promise.all(files.map(validateReferenceFile))).every(Boolean)) {
       throw new RunningHubError(422, "ใช้ภาพ PNG, JPG หรือ WebP ขนาดไม่เกิน 10 MB ต่อภาพ");
+    }
+    // Audio references (optional, max 3)
+    const audioEntries: { charId: string; file: File }[] = []
+    for (const [key, value] of form.entries()) {
+      if (/^audio-[a-f0-9]{24}$/i.test(key) && isFile(value)) audioEntries.push({ charId: key.slice(6), file: value })
+    }
+    if (audioEntries.length > MAX_REFERENCE_AUDIOS) throw new RunningHubError(422, `ส่ง audio อ้างอิงได้สูงสุด ${MAX_REFERENCE_AUDIOS} ไฟล์`);
+    if (audioEntries.some(({ file }) => !supportedReferenceAudio(file.name, file.size))) {
+      throw new RunningHubError(422, "ใช้ไฟล์เสียง MP3, WAV, M4A, AAC, OGG หรือ FLAC ขนาดไม่เกิน 20 MB ต่อไฟล์");
     }
     const settings = await readRunningHubSettings();
     if (!settings.apiKey || !settings.workflowId) throw new RunningHubError(409, "บันทึก API Key และ Workflow ID ก่อนส่ง");
@@ -111,15 +127,17 @@ export async function submitRunningHubVideo(sceneId: string, clipCode: string, f
     try {
       const graph = await getRunningHubWorkflow(settings.apiKey, settings.workflowId);
       const request = planWorkflow(graph);
-      const input = { prompt: clip.videoPrompt, ratio, duration: declaredDuration ?? clip.durationSec };
+      const input = { prompt: promptText, ratio, duration: declaredDuration ?? clip.durationSec };
       request({ ...input, imagePaths: slots.map(() => "check") });
       const imagePaths: string[] = [];
       for (const file of files) imagePaths.push(await uploadRunningHubImage(settings.apiKey, file));
+      const audioPaths: string[] = [];
+      for (const { file } of audioEntries) audioPaths.push(await uploadRunningHubImage(settings.apiKey, file));
       if ((await getClip(sceneId, clipCode)).generationKey !== generationKey) {
         throw new RunningHubError(409, "พรอมป์เปลี่ยนระหว่างเตรียมภาพ กรุณาตรวจคลิปอีกครั้ง");
       }
       creating = true;
-      const response = await createRunningHubTask(settings.apiKey, settings.workflowId, request({ ...input, imagePaths }));
+      const response = await createRunningHubTask(settings.apiKey, settings.workflowId, request({ ...input, imagePaths, audioPaths }));
       task.runninghubTaskId = response.taskId;
       task.status = response.taskStatus?.toUpperCase() === "RUNNING" ? "running" : "queued";
       task.startedAt = new Date();
@@ -142,6 +160,25 @@ export async function submitRunningHubVideo(sceneId: string, clipCode: string, f
       throw new RunningHubError(error instanceof RunningHubError ? error.statusCode : 422, message);
     }
   });
+}
+
+export async function runningHubVideoHistory(sceneId: string, clipCode: string) {
+  if (!isObjectIdOrHexString(sceneId)) throw new RunningHubError(404, "ไม่พบซีน");
+  const tasks = await GenerationTask.find({
+    workflowKey: runningHubVideoKey,
+    "target.type": "scene",
+    "target.id": new Types.ObjectId(sceneId),
+    "params.clipCode": clipCode,
+    runninghubTaskId: { $type: "string", $ne: "" },
+  }).select("status outputs params createdAt").sort({ createdAt: -1 }).lean();
+  return tasks.map((task, i) => ({
+    id: String(task._id),
+    promptVersion: (task.params as any)?.promptVersion ?? 1,
+    submitIndex: tasks.length - i,   // เรียงจากใหม่ไปเก่า → submit ล่าสุด = เลขสูงสุด
+    status: task.status,
+    videoCount: task.outputs.filter(o => o.type === "video" && o.url).length,
+    createdAt: task.createdAt,
+  }));
 }
 
 function validVideoOutput(output: { fileUrl: string; fileType?: string }) {

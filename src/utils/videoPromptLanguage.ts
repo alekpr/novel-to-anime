@@ -18,12 +18,11 @@ export function videoPromptStructure(prompt: string) {
   const bindings = Array.from(prompt.matchAll(/^<Subject\s+(\d+)>:\s*<Picture\s+(\d+)>/gmi), ([, subject, picture]) =>
     [subject, picture]);
   const shots = prompt.split(/(?=^\[Shot\s+\d+\](?:\s|$))/mi).map(shot => ({
-    timing: shot.match(/^\[Shot\s+\d+\][ \t]*(?:(?:At[ \t]+)?\d{2}:\d{2}\.\d{3}(?:[–-]\d{2}:\d{2}\.\d{3})?)?/i)?.[0].trim(),
+    shotNum: shot.match(/^\[Shot\s+(\d+)\]/i)?.[1],
     lines: Array.from(shot.matchAll(/(?:<Subject\s+(\d+)>\s*\(S(\d+|\?)\)[^<>\r\n]*)?(<d>[\s\S]*?<\/d>)/gi),
       ([, subject, speaker, spoken]) => [subject, speaker, spoken]),
   }));
-  const endTime = prompt.match(/\bEnd at (\d{2}:\d{2}\.\d{3})\b/i)?.[1];
   const legacyDuration = prompt.match(/\bThe target is a (\d+(?:\.\d+)?)-second\b/i)?.[1];
   const duration = videoDuration(prompt) ?? (legacyDuration ? Number(legacyDuration) : undefined);
-  return JSON.stringify({ tags, bindings, shots, ratio: videoRatio(prompt), duration, endTime });
+  return JSON.stringify({ tags, bindings, shots, ratio: videoRatio(prompt), duration });
 }

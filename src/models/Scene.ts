@@ -63,7 +63,9 @@ const sceneSchema = new Schema({
   totalDurationSec: { type: Number, default: 0 },
   videoPromptDraft: { type: Schema.Types.Mixed, default: null },
   clips: [clipSchema],
-  optimizedClips: { type: Schema.Types.Mixed, default: null },  // { clips: string[], elevenLabsScript: string, bgmSpec: string, analysisReport: string }
+  optimizedClips: { type: Schema.Types.Mixed, default: null },
+  bgmPrompt: { type: String, default: null },
+  dialogueScript: { type: String, default: null },
   status: { type: String, enum: ["draft", "approved"], default: "draft" },
 }, { timestamps: true });
 

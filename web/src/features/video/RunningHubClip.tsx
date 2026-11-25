@@ -3,14 +3,14 @@ import { useId, useState } from 'react'
 import { promptsApi } from '../../lib/api'
 import type { Clip, Scene } from '../../lib/api'
 import { characterImageKey, locationImageKey, outfitImageKeys } from '../../../../src/utils/imageReferenceKeys'
-import { supportedReferenceImage, validPictureSlots, videoDuration, videoRatio } from '../../../../src/utils/videoClipInputs'
+import { supportedReferenceImage, validPictureSlots, videoDuration, videoRatio, MAX_REFERENCE_AUDIOS } from '../../../../src/utils/videoClipInputs'
 import { isDramaClipDuration } from '../../../../src/utils/shortDrama'
 import { usesLatinVideoPrompt } from '../../../../src/utils/videoPromptLanguage'
 import { inspectImageWorkspace } from '../images/imageResourceStore'
 import { referenceUpdateKey } from '../images/updateReferencePrompt'
 import type { EpisodeImageResources } from '../images/useImageResources'
 import { runningHubApi, runningHubCountsKey, runningHubMessage } from './runningHubApi'
-import type { RunningHubSettings } from './runningHubApi'
+import type { RunningHubSettings, VideoHistoryEntry } from './runningHubApi'
 import { RunningHubFootage } from './RunningHubFootage'
 
 function imageSlots(clip: Clip, resources: EpisodeImageResources) {
@@ -33,9 +33,117 @@ function imageSlots(clip: Clip, resources: EpisodeImageResources) {
   })
 }
 
-export function RunningHubClip({ projectId, scene, clip, settings, resources, visible, onSetup, onImages }: {
+// ตัวละครที่มี dialogue ในคลิปนี้ (มี audioReference)
+function audioSlots(clip: Clip, resources: EpisodeImageResources) {
+  const dialogueChars = new Set(
+    (clip.referenceSlots ?? []).filter(s => s.role === 'character').map(s => s.name)
+  )
+  return resources.chars
+    .filter(char => dialogueChars.has(char.name) && (char as any).voice?.audioReference)
+    .slice(0, MAX_REFERENCE_AUDIOS)
+    .map(char => ({ charId: char._id, name: char.name, audioRef: (char as any).voice.audioReference as string }))
+}
+
+export async function buildSendFormData(
+  clip: Clip,
+  projectId: string,
+  resources: EpisodeImageResources,
+  isOptimized?: boolean
+): Promise<FormData> {
+  const slots = imageSlots(clip, resources)
+  const audios = audioSlots(clip, resources)
+  const keys = slots.flatMap(slot => slot.key ? [slot.key] : [])
+  const current = await inspectImageWorkspace(projectId, keys)
+  const body = new FormData()
+  body.append('promptVersion', String(clip.promptVersion))
+  if (isOptimized && clip.videoPrompt) body.append('optimizedPrompt', clip.videoPrompt)
+  for (const slot of slots) {
+    const ref = slot.key ? current.references[slot.key] : undefined
+    if (ref?.status !== 'ready' || !supportedReferenceImage(ref.file.name, ref.file.size)) {
+      throw new Error(`ตรวจไฟล์ Picture ${slot.index} · ${slot.name} ในขั้น 5 ก่อนส่ง`)
+    }
+    body.append(`picture-${slot.index}`, ref.file)
+  }
+  for (const audio of audios) {
+    const res = await fetch(`/api/characters/${audio.charId}/audio-reference`)
+    if (!res.ok) throw new Error(`โหลดไฟล์เสียงของ ${audio.name} ไม่สำเร็จ`)
+    const blob = await res.blob()
+    const ext = audio.audioRef.split('.').pop() ?? 'mp3'
+    body.append(`audio-${audio.charId}`, new File([blob], `${audio.charId}.${ext}`, { type: blob.type }))
+  }
+  return body
+}
+
+function audioRefStatus(clip: Clip, resources: EpisodeImageResources) {
+  const dialogueChars = new Set(
+    (clip.referenceSlots ?? []).filter(s => s.role === 'character').map(s => s.name)
+  )
+  const chars = resources.chars.filter(char => dialogueChars.has(char.name))
+  const withAudio = chars.filter(char => (char as any).voice?.audioReference)
+  return {
+    all: chars,
+    withAudio: withAudio.slice(0, MAX_REFERENCE_AUDIOS),
+    missing: chars.filter(char => !(char as any).voice?.audioReference),
+  }
+}
+
+function statusDot(status: VideoHistoryEntry['status']) {
+  if (status === 'succeeded') return <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
+  if (status === 'failed') return <span className="inline-block h-2 w-2 rounded-full bg-red-400" />
+  if (status === 'queued' || status === 'running') return <span className="inline-block h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
+  return <span className="inline-block h-2 w-2 rounded-full bg-slate-300" />
+}
+
+function VideoHistoryTabs({ projectId, scene, clip, resources, visible, onImages }: {
+  projectId: string; scene: Scene; clip: Clip
+  resources: EpisodeImageResources; visible: boolean; onImages: () => void
+}) {
+  const historyKey = ['runninghub-history', scene._id, clip.clipCode]
+  const historyQuery = useQuery({
+    queryKey: historyKey,
+    queryFn: () => runningHubApi.getHistory(scene._id, clip.clipCode),
+    staleTime: 30_000,
+  })
+  const history = historyQuery.data ?? []
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  if (!history.length) return null
+  const active = selectedId ?? history[0].id
+  const entry = history.find(h => h.id === active) ?? history[0]
+  return (
+    <div className="space-y-2 border-t border-slate-100 pt-3">
+      <p className="text-xs font-medium text-slate-500">ประวัติวิดีโอ ({history.length} เวอร์ชัน)</p>
+      <div className="flex flex-wrap gap-1.5">
+        {history.map(h => (
+          <button key={h.id} type="button"
+            onClick={() => setSelectedId(h.id)}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${
+              h.id === active
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+            }`}>
+            {statusDot(h.status)}
+            #{h.submitIndex}
+            <span className="text-slate-400">v{h.promptVersion}</span>
+            {h.videoCount > 1 && <span className="text-slate-400">·{h.videoCount}</span>}
+          </button>
+        ))}
+      </div>
+      {entry.status === 'succeeded' && entry.videoCount > 0 && Array.from({ length: entry.videoCount }, (_, i) => (
+        <RunningHubFootage key={`${entry.id}:${i}`} projectId={projectId} sceneCode={scene.sceneCode}
+          clipCode={clip.clipCode} jobId={entry.id} index={i + 1} resources={resources} visible={visible} onImages={onImages} />
+      ))}
+      {entry.status === 'failed' && <p className="text-sm text-red-600">เวอร์ชันนี้สร้างไม่สำเร็จ</p>}
+      {(entry.status === 'queued' || entry.status === 'running') && (
+        <p className="text-sm text-blue-600">{entry.status === 'queued' ? 'รอคิว' : 'กำลังสร้าง'}…</p>
+      )}
+    </div>
+  )
+}
+
+export function RunningHubClip(
+{ projectId, scene, clip, settings, resources, visible, onSetup, onImages, projectRatio, isOptimized }: {
   projectId: string; scene: Scene; clip: Clip; settings?: RunningHubSettings; resources: EpisodeImageResources
-  visible: boolean
+  visible: boolean; projectRatio?: string; isOptimized?: boolean
   onSetup: () => void; onImages: () => void
 }) {
   const qc = useQueryClient()
@@ -43,6 +151,7 @@ export function RunningHubClip({ projectId, scene, clip, settings, resources, vi
   const [comment, setComment] = useState('')
   const promptVersion = clip.promptVersion ?? 1
   const jobKey = ['runninghub-job', scene._id, clip.clipCode, clip.promptVersion]
+  const historyKey = ['runninghub-history', scene._id, clip.clipCode]
   const jobQuery = useQuery({
     queryKey: jobKey,
     queryFn: () => runningHubApi.getJob(scene._id, clip.clipCode),
@@ -59,6 +168,8 @@ export function RunningHubClip({ projectId, scene, clip, settings, resources, vi
   const videoJobId = currentVideo?.id ?? previousVideo?.sourceJobId
   const videoCount = currentVideo?.videos.length ?? previousVideo?.sourceVideoCount ?? 0
   const slots = imageSlots(clip, resources)
+  const audios = audioSlots(clip, resources)
+  const audioStatus = audioRefStatus(clip, resources)
   const updatingKeys = useMutationState({
     filters: { mutationKey: referenceUpdateKey(projectId), status: 'pending' },
     select: mutation => mutation.options.mutationKey?.[2],
@@ -69,33 +180,24 @@ export function RunningHubClip({ projectId, scene, clip, settings, resources, vi
     const ref = slot.key ? resources.references[slot.key] : undefined
     return ref?.status === 'ready' && !supportedReferenceImage(ref.file.name, ref.file.size)
   })
-  const ratio = videoRatio(clip.videoPrompt) ?? (scene.dramaBeat ? '9:16' : undefined)
-  const validSlots = validPictureSlots(clip.videoPrompt, slots)
+  const ratio = projectRatio ?? videoRatio(clip.videoPrompt) ?? (scene.dramaBeat ? '9:16' : undefined)
+  const validSlots = isOptimized || validPictureSlots(clip.videoPrompt, slots)
   const duration = videoDuration(clip.videoPrompt) ?? clip.durationSec
-  const validDuration = duration === clip.durationSec &&
-    (scene.dramaBeat ? isDramaClipDuration(duration) : Number.isFinite(duration) && duration > 0)
-  const validClip = !!ratio && validDuration && !!clip.videoPrompt.trim()
+  const validDuration = isOptimized || (duration === clip.durationSec &&
+    (scene.dramaBeat ? isDramaClipDuration(duration) : Number.isFinite(duration) && duration > 0))
+  const validClip = !!ratio && (isOptimized || validDuration) && !!clip.videoPrompt.trim()
   const validLanguage = usesLatinVideoPrompt(clip.videoPrompt)
   const configured = !!settings?.keySet && !!settings.workflowId
 
   const send = useMutation({
     mutationFn: async () => {
-      const keys = slots.flatMap(slot => slot.key ? [slot.key] : [])
-      const current = await inspectImageWorkspace(projectId, keys)
-      const body = new FormData()
-      body.append('promptVersion', String(clip.promptVersion))
-      for (const slot of slots) {
-        const ref = slot.key ? current.references[slot.key] : undefined
-        if (ref?.status !== 'ready' || !supportedReferenceImage(ref.file.name, ref.file.size)) {
-          throw new Error(`ตรวจไฟล์ Picture ${slot.index} · ${slot.name} ในขั้น 5 ก่อนส่ง`)
-        }
-        body.append(`picture-${slot.index}`, ref.file)
-      }
+      const body = await buildSendFormData(clip, projectId, resources, isOptimized)
       return runningHubApi.send(scene._id, clip.clipCode, body)
     },
     onSuccess: async result => {
       await qc.cancelQueries({ queryKey: jobKey })
       qc.setQueryData(jobKey, result)
+      void qc.invalidateQueries({ queryKey: historyKey })
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['image-workspace', projectId] })
@@ -148,6 +250,26 @@ export function RunningHubClip({ projectId, scene, clip, settings, resources, vi
       <p className="text-xs text-slate-600">
         {ratio ?? 'ยังไม่พบสัดส่วนภาพ'} · {duration} วินาที · ภาพพร้อม {slots.length - needed.length - unsupported.length}/{slots.length}
       </p>
+      {audioStatus.all.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-slate-500">🎙 Audio Reference ({audioStatus.withAudio.length}/{audioStatus.all.length})</p>
+          <div className="flex flex-wrap gap-1.5">
+            {audioStatus.withAudio.map(a => (
+              <span key={a._id} className="inline-flex items-center gap-1 rounded bg-green-50 border border-green-200 px-2 py-0.5 text-xs text-green-700">
+                ✓ {a.name}
+              </span>
+            ))}
+            {audioStatus.missing.map(c => (
+              <span key={c._id} className="inline-flex items-center gap-1 rounded bg-amber-50 border border-amber-200 px-2 py-0.5 text-xs text-amber-700">
+                ⚠ {c.name} — ไม่มี audio ref
+              </span>
+            ))}
+          </div>
+          {audioStatus.missing.length > 0 && (
+            <p className="text-xs text-amber-600">อัปโหลด audio ref ในขั้น Prompt → tab Audio Ref เพื่อให้เสียงสมจริงยิ่งขึ้น</p>
+          )}
+        </div>
+      )}
       {settings && !configured && <button type="button" onClick={onSetup} className="text-sm text-blue-700 underline">ตั้งค่า API Key และ Workflow ก่อนส่ง</button>}
       {(!validSlots || !validClip) && <p className="text-sm text-amber-800">ตรวจสัดส่วน เวลา และลำดับ Picture ในพรอมป์ที่สร้างในขั้น 6</p>}
       {!validLanguage && <p className="text-sm text-amber-800">
@@ -178,6 +300,7 @@ export function RunningHubClip({ projectId, scene, clip, settings, resources, vi
         <RunningHubFootage key={`${videoJobId}:${i}`} projectId={projectId} sceneCode={scene.sceneCode}
           clipCode={clip.clipCode} jobId={videoJobId} index={i + 1} resources={resources} visible={visible} onImages={onImages} />
       ))}
+      <VideoHistoryTabs projectId={projectId} scene={scene} clip={clip} resources={resources} visible={visible} onImages={onImages} />
       {videoJobId && (
         <form className="space-y-2 border-t pt-3" onSubmit={event => {
           event.preventDefault()

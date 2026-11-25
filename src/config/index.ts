@@ -12,6 +12,7 @@ export const config = {
   port: parseInt(process.env.PORT ?? "3000", 10),
   mongoUri: process.env.MONGO_URI ?? "mongodb://127.0.0.1:27017/novel_anime",
   dataDir: path.resolve(process.env.DATA_DIR ?? "./data"),
+  audioDir: path.resolve(process.env.AUDIO_DIR ?? "./data/audio"),
   llm: (() => {
     const requestedProvider = process.env.LLM_PROVIDER;
     const provider = requestedProvider === "gemini" || requestedProvider === "deepseek" ? requestedProvider : "openai";
@@ -46,6 +47,10 @@ export const config = {
     maxConcurrentImage: parseInt(process.env.RH_MAX_CONCURRENT_IMAGE ?? "2", 10),
     maxConcurrentVideo: parseInt(process.env.RH_MAX_CONCURRENT_VIDEO ?? "1", 10),
   },
+  elevenLabs: {
+    apiKey: process.env.ELEVENLABS_API_KEY ?? "",
+  },
+  ffmpegPath: process.env.FFMPEG_PATH ?? "/opt/homebrew/bin/ffmpeg",
 };
 
 export function requireApiKeys() {

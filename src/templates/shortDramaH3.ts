@@ -20,6 +20,8 @@ export function assembleShortDramaH3(input: {
   blocking: string;
   soundAndEditing: string;
   shots: DirectedShot[];
+  aspectRatio?: string;
+  artStyle?: string;
 }) {
   const speakers = new Map<number, number>();
   const speakerShots = new Map<number, number[]>();
@@ -48,8 +50,12 @@ export function assembleShortDramaH3(input: {
       `<Subject ${subject}> (S${speakers.get(subject)}) says${delivery ? ` ${delivery}` : ""}: <d>[${language}] ${text}</d>`),
   ].join("\n"));
 
+  const cleanSoundAndEditing = input.soundAndEditing
+    .replace(/[^.!?]*(?:flute|strings?|piano|violin|cello|harp|drum|percussion|trumpet|horn|guitar|melody|motif|musical?|non[- ]?diegetic|bgm|background music|score|soundtrack|orchestr\w*|instrument\w*)[^.!?]*[.!?]?/gi, '')
+    .replace(/\s{2,}/g, ' ').trim();
+
   const prompt = [
-    `${durationSec} seconds, vertical 9:16. Ultra-realistic live-action Thai television drama. ${input.overview}`,
+    `${durationSec} seconds, ${input.aspectRatio ?? "vertical 9:16"}. ${input.artStyle ?? "Ultra-realistic live-action Thai television drama"}. ${input.overview}`,
     ["SUBJECT REFERENCES", ...subjectLines].join("\n\n"),
     `FIXED BLOCKING, CAMERA AXIS AND LIGHT\n${input.blocking}`,
     [
@@ -59,7 +65,7 @@ export function assembleShortDramaH3(input: {
       speakers.size ? "Speak only the tagged dialogue verbatim in its specified language. Keep all production directions unspoken. Cut to each assigned speaker before the first word and stay on that face until the line ends. Preserve distinct voices and natural lip sync. No narration or overlapping voices." : "",
     ].filter(Boolean).join("\n"),
     ...shots,
-    `BACKGROUND ACTIVITY, SOUND AND EDITING\n${input.soundAndEditing}\nKeep background movement and sound below the main action. No extra dialogue, captions, fade or cut to black. End at ${timecode(durationSec)}.`,
+    `BACKGROUND ACTIVITY, SOUND AND EDITING\n${cleanSoundAndEditing}\nKeep background movement and sound below the main action. No non-diegetic music or BGM — retain only diegetic sound effects and environmental audio. No extra dialogue, captions, fade or cut to black. End at ${timecode(durationSec)}.`,
   ].join("\n\n");
 
   return { prompt, references };

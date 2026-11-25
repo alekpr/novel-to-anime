@@ -42,7 +42,63 @@ function EditableField({ label, value, onSave }: { label: string; value: string;
   )
 }
 
-function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, onFixUnknown, currentEp, inCurrentEp, showAll }: {
+function AudioRefButton({ char, onDone }: { char: Character; onDone: () => void }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const qc = useQueryClient()
+  const hasAudio = !!char.voice?.audioReference
+
+  async function handleFile(file: File) {
+    setUploading(true); setError(null)
+    try {
+      await charactersApi.uploadAudio(char._id, file)
+      await qc.invalidateQueries({ queryKey: ['characters'] })
+      onDone()
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? 'อัปโหลดไม่สำเร็จ')
+    } finally { setUploading(false) }
+  }
+
+  async function handleDelete() {
+    if (!confirm(`ลบไฟล์เสียงอ้างอิงของ "${char.name}"?`)) return
+    setUploading(true); setError(null)
+    try {
+      await charactersApi.deleteAudio(char._id)
+      await qc.invalidateQueries({ queryKey: ['characters'] })
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? 'ลบไม่สำเร็จ')
+    } finally { setUploading(false) }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <input ref={inputRef} type="file" accept=".mp3,.wav,.m4a,.aac,.ogg,.flac" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
+      {hasAudio ? (
+        <>
+          <span className="flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1">
+            🎙 Audio ref พร้อม
+          </span>
+          <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+            className="text-xs px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-40">
+            {uploading ? 'กำลังอัปโหลด…' : '↑ เปลี่ยนไฟล์'}
+          </button>
+          <button type="button" onClick={handleDelete} disabled={uploading}
+            className="text-xs px-2 py-1 text-red-500 border border-red-200 rounded hover:bg-red-50 disabled:opacity-40">✕</button>
+        </>
+      ) : (
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+          className="text-xs px-2 py-1 border border-dashed border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40 text-gray-500">
+          {uploading ? 'กำลังอัปโหลด…' : '🎙 Upload Audio Ref'}
+        </button>
+      )}
+      {error && <span className="text-xs text-red-600">{error}</span>}
+    </div>
+  )
+}
+
+function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, onFixUnknown, onAudioDone, currentEp, inCurrentEp, showAll }: {
   char: Character
   onApprove: () => void
   onUpdate: (data: Partial<Character>) => void
@@ -50,6 +106,7 @@ function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, 
   onRegenerate: () => void
   onReset: () => void
   onFixUnknown: () => void
+  onAudioDone: () => void
   currentEp: number
   inCurrentEp: boolean
   showAll?: boolean
@@ -167,6 +224,9 @@ function CharCard({ char, onApprove, onUpdate, onDelete, onRegenerate, onReset, 
               {char.voice.voicePrompt}
             </div>
           )}
+
+          {/* Audio Reference */}
+          <AudioRefButton char={char} onDone={onAudioDone} />
         </div>
       )}
     </div>
@@ -516,6 +576,7 @@ export function BibleStep({ projectId, episodeId, statusData, statusLoadFailed, 
                   onRegenerate={() => regenerateChar.mutateAsync(c._id)}
                   onReset={() => resetChar.mutateAsync(c._id)}
                   onFixUnknown={() => fixUnknownChar.mutateAsync(c._id)}
+                  onAudioDone={() => qc.invalidateQueries({ queryKey: ['characters', projectId] })}
                 />
               ))
             )}

@@ -5,11 +5,11 @@ import { z } from "zod";
 import { RunningHubSettings } from "../models/RunningHubSettings.js";
 import { ProjectActivityError } from "../services/projectLifecycle.service.js";
 import { getRunningHubWorkflow, publicRunningHubSettings, readRunningHubSettings, RunningHubError } from "../services/runningHub.service.js";
-import { latestRunningHubVideo, runningHubFootageFile, runningHubGenerationCounts, submitRunningHubVideo } from "../services/runningHubVideo.service.js";
+import { latestRunningHubVideo, runningHubFootageFile, runningHubGenerationCounts, runningHubVideoHistory, submitRunningHubVideo } from "../services/runningHubVideo.service.js";
 import { planWorkflow, WorkflowId } from "../utils/runningHubWorkflow.js";
-import { MAX_REFERENCE_IMAGE_BYTES, MAX_REFERENCE_IMAGES } from "../utils/videoClipInputs.js";
+import { MAX_REFERENCE_AUDIO_BYTES, MAX_REFERENCE_AUDIOS, MAX_REFERENCE_IMAGE_BYTES, MAX_REFERENCE_IMAGES } from "../utils/videoClipInputs.js";
 
-const multipartLimit = MAX_REFERENCE_IMAGES * MAX_REFERENCE_IMAGE_BYTES + 1_000_000;
+const multipartLimit = MAX_REFERENCE_IMAGES * MAX_REFERENCE_IMAGE_BYTES + MAX_REFERENCE_AUDIOS * MAX_REFERENCE_AUDIO_BYTES + 1_000_000;
 const SetupBody = z.object({
   apiKey: z.string().trim().min(1).max(500).regex(/^[\x21-\x7E]+$/).optional(),
   workflowId: WorkflowId,
@@ -70,6 +70,14 @@ export async function runningHubRoutes(app: FastifyInstance) {
   app.get<{ Params: { sceneId: string; clipCode: string } }>("/scenes/:sceneId/clips/:clipCode/runninghub", async (req, reply) => {
     try {
       return { job: await latestRunningHubVideo(req.params.sceneId, req.params.clipCode) };
+    } catch (error) {
+      return respondError(reply, error);
+    }
+  });
+
+  app.get<{ Params: { sceneId: string; clipCode: string } }>("/scenes/:sceneId/clips/:clipCode/runninghub/history", async (req, reply) => {
+    try {
+      return { history: await runningHubVideoHistory(req.params.sceneId, req.params.clipCode) };
     } catch (error) {
       return respondError(reply, error);
     }

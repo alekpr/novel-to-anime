@@ -13,8 +13,9 @@ const episodeSchema = new Schema({
   },
   paragraphs: [paragraphSchema],
   summary: { type: String, default: "" },
-  targetDurationSec: { type: Number, default: null }, // null = ใช้ค่าจาก project
+  targetDurationSec: { type: Number, default: null },
   bibleVersion: { type: Number, default: 0 },
+  bgmAnalysis: { type: Schema.Types.Mixed, default: null }, // { cues: MusicCue[], raw: string }
 }, { timestamps: true });
 
 episodeSchema.index({ projectId: 1, number: 1 }, { unique: true });
